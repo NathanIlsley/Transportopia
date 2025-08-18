@@ -1,6 +1,7 @@
 use macroquad::prelude::*;
 use transportopia::structures::Structure;
-use transportopia::rendering::Renderer;
+use transportopia::world_drawer::WorldDrawer;
+use transportopia::inputs::InputHandler;
 
 fn window_conf() -> Conf {
     Conf {
@@ -33,12 +34,18 @@ async fn main() {
     let c_track_270 = Structure::new(vec2(-479.0, -12.0), vec2(0.0, 0.0), "./assets/track_curved_270.png").await;
     let c_track_315 = Structure::new(vec2(-478.0, -719.0), vec2(0.0, 0.0), "./assets/track_curved_315.png").await;
 
-    let renderer = Renderer::new("./assets/grass_0.png", vec![s_track_0]).await;
+    let mut tile_manager = transportopia::tiles::TileManager::new();
+
+    let mut world_drawer = WorldDrawer::new("./assets/grass_0.png", vec![s_track_0]).await;
+
+    let input_handler = InputHandler::new();
     
     loop {
         clear_background(BLACK);
-        
-        renderer.draw();
+
+        world_drawer.draw(&tile_manager);
+
+        input_handler.take_input(&mut world_drawer);
 
         // s_track_0.draw(vec2(0.0, 0.0), &scale, &tile_dim, &vec2(0.0, 0.0));
 
