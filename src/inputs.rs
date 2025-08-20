@@ -8,7 +8,7 @@ pub struct InputHandler {
 impl InputHandler {
     pub fn new() -> Self {
         Self {
-            scroll_speed: 100.0,
+            scroll_speed: 200.0,
         }
     }
 

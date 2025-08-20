@@ -1,4 +1,5 @@
 use macroquad::prelude::*;
+use macroquad::telemetry::ZoneGuard;
 use crate::structures::Structure;
 use crate::tiles::Tile;
 use crate::tiles::TileManager;
@@ -64,7 +65,15 @@ impl Chunk {
     }
 
     pub fn draw_to_render_target(&mut self, grass: &Texture2D) {
+        let _z = ZoneGuard::new("Draw to render target");
         set_camera(&self.rt_camera);
+
+        clear_background(Color::new(0.0, 0.0, 0.0, 0.0));
+
+        let parameters = DrawTextureParams {
+                        dest_size: Some(Vec2::new(grass.width() / (self.to_next_chunk * 2 + 1) as f32, grass.height() / (self.to_next_chunk * 2 + 1) as f32)),
+                        ..Default::default()
+                    };
 
         for k in -self.to_next_chunk..self.to_next_chunk+1 {
             for l in -self.to_next_chunk..self.to_next_chunk+1 {
@@ -73,30 +82,24 @@ impl Chunk {
                     self.render_target.texture.width() / 2.0 + (k - 1 - l) as f32 * self.tile_dim.x / (self.to_next_chunk * 2 + 1) as f32,
                     self.render_target.texture.height() / 2.0 + (l - 1 + k) as f32 * self.tile_dim.y / (self.to_next_chunk * 2 + 1) as f32,
                     WHITE,
-                    DrawTextureParams {
-                        dest_size: Some(Vec2::new(grass.width() / (self.to_next_chunk * 2 + 1) as f32, grass.height() / (self.to_next_chunk * 2 + 1) as f32)),
-                        ..Default::default()
-                    },
+                    parameters.clone(),
                 );
             }
         }
     }
 
-    pub fn draw_to_screen(&self, scale: f32, scroll_vector: &Vec2) {
+    pub fn draw_to_screen(&self, scale: f32, scroll_vector: &Vec2, parameters: DrawTextureParams) {
         draw_texture_ex(
             &self.render_target.texture,
             screen_width() / 2.0 - 1.0 * self.render_target.texture.width() / 2.0 * scale + (self.chunk_pos.x - self.chunk_pos.y) * self.tile_dim.x * scale + scroll_vector.x,
             screen_height() / 2.0 - 1.0 * self.render_target.texture.height() / 2.0 * scale + (self.chunk_pos.y + self.chunk_pos.x) * self.tile_dim.y * scale + scroll_vector.y,
             WHITE,
-            DrawTextureParams {
-                dest_size: Some(Vec2::new(self.render_target.texture.width() * scale, self.render_target.texture.height() * scale)),
-                ..Default::default()
-            },
+            parameters,
         );
     }
 }
 
-const CHUNKS_FROM_CENTRE: usize = 5;
+const CHUNKS_FROM_CENTRE: usize = 8;//8;
 
 pub struct WorldDrawer {
     scale: f32,
@@ -125,12 +128,12 @@ impl WorldDrawer {
         for i in -(CHUNKS_FROM_CENTRE as i32)..CHUNKS_FROM_CENTRE as i32 + 1 {
             chunks.push(Vec::new());
             for j in -(CHUNKS_FROM_CENTRE as i32)..CHUNKS_FROM_CENTRE as i32 + 1 {
-                chunks[(i + CHUNKS_FROM_CENTRE as i32) as usize].push(Chunk::new(vec2(i as f32, j as f32), to_next_chunk, tile_dim, false)); 
+                chunks[(i + CHUNKS_FROM_CENTRE as i32) as usize].push(Chunk::new(vec2(i as f32, j as f32), to_next_chunk, tile_dim, false));//if i == 0 || i == 1 {true} else {false})); 
             }
         }
 
         Self {
-            scale: 1.0,
+            scale: 0.75,
             to_next_chunk,
             grass,
             tile_dim,
@@ -143,6 +146,19 @@ impl WorldDrawer {
     }
 
     pub fn change_scroll(&mut self, delta: Vec2) {
+        // let diagonal_tile_dim = ((self.tile_dim.x / 2.0).powi(2) + (self.tile_dim.y / 2.0).powi(2)).sqrt() * self.scale / self.to_next_chunk as f32;
+        // let diagonal_dist_to_next_chunk = ((self.chunks[CHUNKS_FROM_CENTRE + 1][CHUNKS_FROM_CENTRE].chunk_pos.x * (self.to_next_chunk * 2 + 1) as f32 * self.tile_dim.x * self.scale - self.scroll_vector.x).powi(2)
+        //                                          + (self.chunks[CHUNKS_FROM_CENTRE + 1][CHUNKS_FROM_CENTRE].chunk_pos.y * (self.to_next_chunk * 2 + 1) as f32 * self.tile_dim.y * self.scale - self.scroll_vector.y).powi(2)).sqrt();
+
+        // println!("{}, {}", self.chunks[CHUNKS_FROM_CENTRE + 1][CHUNKS_FROM_CENTRE].chunk_pos.x, diagonal_dist_to_next_chunk);
+        // if diagonal_dist_to_next_chunk < diagonal_tile_dim * (self.to_next_chunk * 2 + 1) as f32 / 2.0 {
+        //     for i in 0..self.chunks.len() {
+        //         let prev_max_y_pos = self.chunks[CHUNKS_FROM_CENTRE * 2 + 1][i].chunk_pos.y as f32;
+        //         self.chunks[i].push(Chunk::new(vec2(i as f32, prev_max_y_pos), self.to_next_chunk, self.tile_dim, false));
+        //         self.chunks[i].remove(0);
+        //     }
+        // }
+
         self.scroll_vector += delta;
     }
 
@@ -158,15 +174,24 @@ impl WorldDrawer {
                 if !self.chunks[i][j].is_built() {
                     self.chunks[i][j].build(tile_manager);
                     self.chunks[i][j].draw_to_render_target(&self.grass);
+                } else if self.chunks[i][j].is_live_chunk() {
+                    self.chunks[i][j].draw_to_render_target(&self.grass);
                 }
             }
         }
 
+        build_textures_atlas();
+        
         set_default_camera();
+
+        let parameters = DrawTextureParams {
+                dest_size: Some(Vec2::new(256.0 * self.scale, 256.0 * self.scale)),
+                ..Default::default()
+            };
 
         for i in 0..self.chunks.len() {
             for j in 0..self.chunks[i].len() {
-                self.chunks[i][j].draw_to_screen(self.scale, &self.scroll_vector);
+                self.chunks[i][j].draw_to_screen(self.scale, &self.scroll_vector, parameters.clone());
             }
         }
 
