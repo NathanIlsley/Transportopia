@@ -4,6 +4,9 @@ use crate::structures::Structure;
 use crate::tiles::Tile;
 use crate::tiles::TileManager;
 
+const CHUNK_RESOLUTION: f32 = 256.0;
+const CHUNKS_FROM_CENTRE: usize = 8;//8;
+
 pub struct Chunk {
     chunk_pos: Vec2,
     to_next_chunk: i32,
@@ -11,16 +14,10 @@ pub struct Chunk {
     live_chunk: bool,
     built: bool,
     tiles: Vec<Vec<Tile>>,
-    render_target: RenderTarget,
-    rt_camera: Camera2D,
 }
 
 impl Chunk {
     pub fn new(chunk_pos: Vec2, to_next_chunk: i32, tile_dim: Vec2, live_chunk: bool) -> Self {
-        let render_target = render_target(256, 256);
-        render_target.texture.set_filter(FilterMode::Nearest);
-        let cam_render_target = render_target.clone();
-
         Self {
             chunk_pos,
             to_next_chunk,
@@ -28,11 +25,6 @@ impl Chunk {
             live_chunk,
             built: false,
             tiles: Vec::new(),
-            render_target,
-            rt_camera: Camera2D {
-                render_target: Some(cam_render_target),
-                ..Camera2D::from_display_rect(Rect::new(0.0, 0.0, 256.0, 256.0))
-            },
         }
     }
 
@@ -66,40 +58,41 @@ impl Chunk {
 
     pub fn draw_to_render_target(&mut self, grass: &Texture2D) {
         let _z = ZoneGuard::new("Draw to render target");
-        set_camera(&self.rt_camera);
 
-        clear_background(Color::new(0.0, 0.0, 0.0, 0.0));
+        let x = (self.chunk_pos.x + CHUNKS_FROM_CENTRE as f32) * CHUNK_RESOLUTION as f32;
+        let y = (self.chunk_pos.y + CHUNKS_FROM_CENTRE as f32) * CHUNK_RESOLUTION as f32;
+
+        // Clear section being drawn
+        draw_rectangle(x, y, CHUNK_RESOLUTION, CHUNK_RESOLUTION, Color::new(0.0, 0.0, 0.0, 0.0));
 
         let parameters = DrawTextureParams {
-                        dest_size: Some(Vec2::new(grass.width() / (self.to_next_chunk * 2 + 1) as f32, grass.height() / (self.to_next_chunk * 2 + 1) as f32)),
-                        ..Default::default()
-                    };
+            dest_size: Some(Vec2::new(grass.width() / (self.to_next_chunk * 2 + 1) as f32, grass.height() / (self.to_next_chunk * 2 + 1) as f32)),
+            ..Default::default()
+        };
 
         for k in -self.to_next_chunk..self.to_next_chunk+1 {
-            for l in -self.to_next_chunk..self.to_next_chunk+1 {
-                draw_texture_ex(
-                    grass,
-                    self.render_target.texture.width() / 2.0 + (k - 1 - l) as f32 * self.tile_dim.x / (self.to_next_chunk * 2 + 1) as f32,
-                    self.render_target.texture.height() / 2.0 + (l - 1 + k) as f32 * self.tile_dim.y / (self.to_next_chunk * 2 + 1) as f32,
-                    WHITE,
-                    parameters.clone(),
-                );
-            }
+        for l in -self.to_next_chunk..self.to_next_chunk+1 {
+            draw_texture_ex(
+                grass,
+                x + CHUNK_RESOLUTION / 2.0 + (k - 1 - l) as f32 * self.tile_dim.x / (self.to_next_chunk * 2 + 1) as f32,
+                y + CHUNK_RESOLUTION / 2.0 + (l - 1 + k) as f32 * self.tile_dim.y / (self.to_next_chunk * 2 + 1) as f32,
+                WHITE,
+                parameters.clone(),
+            );
+        }
         }
     }
 
-    pub fn draw_to_screen(&self, scale: f32, scroll_vector: &Vec2, parameters: DrawTextureParams) {
+    pub fn draw_to_screen(&self, chunk_atlas_tex: &Texture2D, scale: f32, scroll_vector: &Vec2, parameters: DrawTextureParams) {
         draw_texture_ex(
-            &self.render_target.texture,
-            screen_width() / 2.0 - 1.0 * self.render_target.texture.width() / 2.0 * scale + (self.chunk_pos.x - self.chunk_pos.y) * self.tile_dim.x * scale + scroll_vector.x,
-            screen_height() / 2.0 - 1.0 * self.render_target.texture.height() / 2.0 * scale + (self.chunk_pos.y + self.chunk_pos.x) * self.tile_dim.y * scale + scroll_vector.y,
+            chunk_atlas_tex,
+            screen_width() / 2.0 - 1.0 * chunk_atlas_tex.width() / 2.0 * scale + (self.chunk_pos.x - self.chunk_pos.y) * self.tile_dim.x * scale + scroll_vector.x + self.chunk_pos.x,
+            screen_height() / 2.0 - 1.0 * chunk_atlas_tex.height() / 2.0 * scale + (self.chunk_pos.y + self.chunk_pos.x) * self.tile_dim.y * scale + scroll_vector.y + self.chunk_pos.y,
             WHITE,
             parameters,
         );
     }
 }
-
-const CHUNKS_FROM_CENTRE: usize = 8;//8;
 
 pub struct WorldDrawer {
     scale: f32,
@@ -108,6 +101,8 @@ pub struct WorldDrawer {
     grass: Texture2D,
     tile_dim: Vec2,
 
+    chunks_atlas: RenderTarget,
+    atlas_camera: Camera2D,
     chunks: Vec<Vec<Chunk>>,
 
     scroll_vector: Vec2,
@@ -124,11 +119,18 @@ impl WorldDrawer {
         // x and y dimensions of the base game tile measured from the centre of the tile to each corner
         let tile_dim = vec2(grass.width() / 2.0, grass.height() / 2.0);
 
+        let chunks_atlas = render_target(CHUNK_RESOLUTION as u32 * (2.0 * CHUNKS_FROM_CENTRE as f32 + 1.0) as u32, CHUNK_RESOLUTION as u32 * (2.0 * CHUNKS_FROM_CENTRE as f32 + 1.0) as u32);
+        chunks_atlas.texture.set_filter(FilterMode::Nearest);
+        let atlas_camera = Camera2D {
+            render_target: Some(chunks_atlas.clone()),
+            ..Camera2D::from_display_rect(Rect::new(0.0, 0.0, CHUNK_RESOLUTION * (2.0 * CHUNKS_FROM_CENTRE as f32 + 1.0), CHUNK_RESOLUTION * (2.0 * CHUNKS_FROM_CENTRE as f32 + 1.0)))
+        };
+
         let mut chunks = Vec::new();
         for i in -(CHUNKS_FROM_CENTRE as i32)..CHUNKS_FROM_CENTRE as i32 + 1 {
             chunks.push(Vec::new());
             for j in -(CHUNKS_FROM_CENTRE as i32)..CHUNKS_FROM_CENTRE as i32 + 1 {
-                chunks[(i + CHUNKS_FROM_CENTRE as i32) as usize].push(Chunk::new(vec2(i as f32, j as f32), to_next_chunk, tile_dim, false));//if i == 0 || i == 1 {true} else {false})); 
+                chunks[(i + CHUNKS_FROM_CENTRE as i32) as usize].push(Chunk::new(vec2(i as f32, j as f32), to_next_chunk, tile_dim, if i == 0 && (j == 0) {true} else {false})); 
             }
         }
 
@@ -138,7 +140,9 @@ impl WorldDrawer {
             grass,
             tile_dim,
 
-            chunks,            
+            chunks,
+            chunks_atlas,
+            atlas_camera,
 
             scroll_vector: vec2(0.0, 0.0),
             structures,
@@ -169,36 +173,37 @@ impl WorldDrawer {
     }
 
     pub fn draw(&mut self, tile_manager: &TileManager) {
+        set_camera(&self.atlas_camera);
+        // clear_background(BLUE);
         for i in 0..self.chunks.len() {
-            for j in 0..self.chunks[i].len() {
-                if !self.chunks[i][j].is_built() {
-                    self.chunks[i][j].build(tile_manager);
-                    self.chunks[i][j].draw_to_render_target(&self.grass);
-                } else if self.chunks[i][j].is_live_chunk() {
-                    self.chunks[i][j].draw_to_render_target(&self.grass);
-                }
+        for j in (0..self.chunks[i].len()).rev() {
+            if !self.chunks[i][j].is_built() {
+                self.chunks[i][j].build(tile_manager);
+                self.chunks[i][j].draw_to_render_target(&self.grass);
+            } else if self.chunks[i][j].is_live_chunk() {
+                self.chunks[i][j].draw_to_render_target(&self.grass);
             }
         }
-
-        build_textures_atlas();
+        }
         
         set_default_camera();
-
-        let parameters = DrawTextureParams {
-                dest_size: Some(Vec2::new(256.0 * self.scale, 256.0 * self.scale)),
+        
+        for i in 0..self.chunks.len() {
+        for j in (0..self.chunks[i].len()).rev() {
+            let parameters = DrawTextureParams {
+                dest_size: Some(Vec2::new(CHUNK_RESOLUTION * self.scale, CHUNK_RESOLUTION * self.scale)),
+                source: Some(Rect::new(i as f32 * CHUNK_RESOLUTION, j as f32 * CHUNK_RESOLUTION, CHUNK_RESOLUTION, CHUNK_RESOLUTION)),
                 ..Default::default()
             };
-
-        for i in 0..self.chunks.len() {
-            for j in 0..self.chunks[i].len() {
-                self.chunks[i][j].draw_to_screen(self.scale, &self.scroll_vector, parameters.clone());
-            }
+            self.chunks[i][j].draw_to_screen(&self.chunks_atlas.texture, self.scale, &self.scroll_vector, parameters);
         }
-
+        }
+        
         for structure in &self.structures {
             structure.draw(vec2(0.0, 0.0), &(self.scale / (self.to_next_chunk * 2 + 1) as f32), &self.tile_dim, &self.scroll_vector);
             structure.draw(vec2(115.0, 115.0), &(self.scale / (self.to_next_chunk * 2 + 1) as f32), &self.tile_dim, &self.scroll_vector);
             structure.draw(vec2(10.0, 10.0), &(self.scale / (self.to_next_chunk * 2 + 1) as f32), &self.tile_dim, &self.scroll_vector);
         }
+        
     }
 }
