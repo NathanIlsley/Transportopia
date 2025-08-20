@@ -47,7 +47,7 @@ impl Chunk {
         let mut tiles = Vec::new();
         for i in (-self.to_next_chunk as i32 + chunk_centre.x as i32)..(self.to_next_chunk as i32 + 1 + chunk_centre.x as i32) {
             tiles.push(Vec::new());
-            for j in (-self.to_next_chunk as i32 + chunk_centre.y as i32)..(self.to_next_chunk + 1 + chunk_centre.y as i32) {
+            for j in ((-self.to_next_chunk as i32 + chunk_centre.y as i32)..(self.to_next_chunk + 1 + chunk_centre.y as i32)).rev() {
                 tiles[(i + self.to_next_chunk - chunk_centre.x as i32) as usize].push(tile_manager.get_tile(i as isize, j as isize).unwrap_or(&Tile::Grass()).clone());
             }
         }
@@ -83,6 +83,43 @@ impl Chunk {
         }
     }
 
+    pub fn update(&mut self, grass: &Texture2D, update_target: &Texture2D, update_camera: &Camera2D, atlas_camera: &Camera2D) {
+        if self.live_chunk {
+            set_camera(update_camera);
+            clear_background(Color::new(0.0, 0.0, 0.0, 0.0));
+
+            let parameters = DrawTextureParams {
+                dest_size: Some(Vec2::new(grass.width() / (self.to_next_chunk * 2 + 1) as f32, grass.height() / (self.to_next_chunk * 2 + 1) as f32)),
+                ..Default::default()
+            };
+
+            for k in -self.to_next_chunk..self.to_next_chunk+1 {
+            for l in -self.to_next_chunk..self.to_next_chunk+1 {
+                draw_texture_ex(
+                    grass,
+                    CHUNK_RESOLUTION / 2.0 + (k - 1 - l) as f32 * self.tile_dim.x / (self.to_next_chunk * 2 + 1) as f32,
+                    CHUNK_RESOLUTION / 2.0 + (l - 1 + k) as f32 * self.tile_dim.y / (self.to_next_chunk * 2 + 1) as f32,
+                    WHITE,
+                    parameters.clone(),
+                );
+            }
+            }
+
+            set_camera(atlas_camera);
+
+            draw_texture_ex(
+                update_target,
+                (self.chunk_pos.x + CHUNKS_FROM_CENTRE as f32) * CHUNK_RESOLUTION as f32,
+                (self.chunk_pos.y + CHUNKS_FROM_CENTRE as f32) * CHUNK_RESOLUTION as f32,
+                WHITE,
+                DrawTextureParams {
+                    dest_size: Some(Vec2::new(CHUNK_RESOLUTION, CHUNK_RESOLUTION)),
+                    ..Default::default()
+                },
+            );
+        }
+    }
+
     pub fn draw_to_screen(&self, chunk_atlas_tex: &Texture2D, scale: f32, scroll_vector: &Vec2, parameters: DrawTextureParams) {
         draw_texture_ex(
             chunk_atlas_tex,
@@ -101,9 +138,11 @@ pub struct WorldDrawer {
     grass: Texture2D,
     tile_dim: Vec2,
 
+    chunks: Vec<Vec<Chunk>>,
     chunks_atlas: RenderTarget,
     atlas_camera: Camera2D,
-    chunks: Vec<Vec<Chunk>>,
+    chunk_update_target: RenderTarget,
+    update_camera: Camera2D,
 
     scroll_vector: Vec2,
     structures: Vec<Structure>,
@@ -126,11 +165,18 @@ impl WorldDrawer {
             ..Camera2D::from_display_rect(Rect::new(0.0, 0.0, CHUNK_RESOLUTION * (2.0 * CHUNKS_FROM_CENTRE as f32 + 1.0), CHUNK_RESOLUTION * (2.0 * CHUNKS_FROM_CENTRE as f32 + 1.0)))
         };
 
+        let chunk_update_target = render_target(CHUNK_RESOLUTION as u32, CHUNK_RESOLUTION as u32);
+        chunk_update_target.texture.set_filter(FilterMode::Nearest);
+        let update_camera = Camera2D {
+            render_target: Some(chunk_update_target.clone()),
+            ..Camera2D::from_display_rect(Rect::new(0.0, 0.0, CHUNK_RESOLUTION, CHUNK_RESOLUTION))
+        };
+
         let mut chunks = Vec::new();
         for i in -(CHUNKS_FROM_CENTRE as i32)..CHUNKS_FROM_CENTRE as i32 + 1 {
             chunks.push(Vec::new());
             for j in -(CHUNKS_FROM_CENTRE as i32)..CHUNKS_FROM_CENTRE as i32 + 1 {
-                chunks[(i + CHUNKS_FROM_CENTRE as i32) as usize].push(Chunk::new(vec2(i as f32, j as f32), to_next_chunk, tile_dim, if i == 0 && (j == 0) {true} else {false})); 
+                chunks[(i + CHUNKS_FROM_CENTRE as i32) as usize].push(Chunk::new(vec2(i as f32, j as f32), to_next_chunk, tile_dim, if i == 0 {true} else {false})); 
             }
         }
 
@@ -143,6 +189,8 @@ impl WorldDrawer {
             chunks,
             chunks_atlas,
             atlas_camera,
+            chunk_update_target,
+            update_camera,
 
             scroll_vector: vec2(0.0, 0.0),
             structures,
@@ -180,8 +228,8 @@ impl WorldDrawer {
             if !self.chunks[i][j].is_built() {
                 self.chunks[i][j].build(tile_manager);
                 self.chunks[i][j].draw_to_render_target(&self.grass);
-            } else if self.chunks[i][j].is_live_chunk() {
-                self.chunks[i][j].draw_to_render_target(&self.grass);
+            } else {
+                self.chunks[i][j].update(&self.grass, &self.chunk_update_target.texture, &self.update_camera, &self.atlas_camera);
             }
         }
         }

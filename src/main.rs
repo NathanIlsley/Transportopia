@@ -1,3 +1,4 @@
+use macroquad::miniquad::gl::{glBlendFunc, GL_ONE_MINUS_SRC_ALPHA, GL_SRC_ALPHA};
 use macroquad::prelude::*;
 use macroquad_profiler;
 use transportopia::structures::Structure;
