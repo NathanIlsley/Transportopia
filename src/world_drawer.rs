@@ -4,6 +4,8 @@ use crate::structures::Structure;
 use crate::tiles::Tile;
 use crate::tiles::TileManager;
 
+const CHUNK_RESOLUTION: f32 = 256.0;
+
 pub struct Chunk {
     chunk_pos: Vec2,
     to_next_chunk: i32,
@@ -17,7 +19,7 @@ pub struct Chunk {
 
 impl Chunk {
     pub fn new(chunk_pos: Vec2, to_next_chunk: i32, tile_dim: Vec2, live_chunk: bool) -> Self {
-        let render_target = render_target(256, 256);
+        let render_target = render_target(CHUNK_RESOLUTION as u32, CHUNK_RESOLUTION as u32);
         render_target.texture.set_filter(FilterMode::Nearest);
         let cam_render_target = render_target.clone();
 
@@ -31,7 +33,7 @@ impl Chunk {
             render_target,
             rt_camera: Camera2D {
                 render_target: Some(cam_render_target),
-                ..Camera2D::from_display_rect(Rect::new(0.0, 0.0, 256.0, 256.0))
+                ..Camera2D::from_display_rect(Rect::new(0.0, 0.0, CHUNK_RESOLUTION, CHUNK_RESOLUTION))
             },
         }
     }
@@ -65,7 +67,7 @@ impl Chunk {
     }
 
     pub fn draw_to_render_target(&mut self, grass: &Texture2D) {
-        let _z = ZoneGuard::new("Draw to render target");
+        // let _z = ZoneGuard::new("Draw to render target");
         set_camera(&self.rt_camera);
 
         clear_background(Color::new(0.0, 0.0, 0.0, 0.0));
@@ -99,7 +101,7 @@ impl Chunk {
     }
 }
 
-const CHUNKS_FROM_CENTRE: usize = 8;//8;
+const CHUNKS_FROM_CENTRE: usize = 3;//8;
 
 pub struct WorldDrawer {
     scale: f32,
@@ -119,7 +121,7 @@ impl WorldDrawer {
         let grass: Texture2D = load_texture(grass_tex).await.unwrap();
         grass.set_filter(FilterMode::Nearest);
 
-        let to_next_chunk = 10;
+        let to_next_chunk = 8;//15;
 
         // x and y dimensions of the base game tile measured from the centre of the tile to each corner
         let tile_dim = vec2(grass.width() / 2.0, grass.height() / 2.0);
@@ -128,12 +130,12 @@ impl WorldDrawer {
         for i in -(CHUNKS_FROM_CENTRE as i32)..CHUNKS_FROM_CENTRE as i32 + 1 {
             chunks.push(Vec::new());
             for j in -(CHUNKS_FROM_CENTRE as i32)..CHUNKS_FROM_CENTRE as i32 + 1 {
-                chunks[(i + CHUNKS_FROM_CENTRE as i32) as usize].push(Chunk::new(vec2(i as f32, j as f32), to_next_chunk, tile_dim, false));//if i == 0 || i == 1 {true} else {false})); 
+                chunks[(i + CHUNKS_FROM_CENTRE as i32) as usize].push(Chunk::new(vec2(i as f32, j as f32), to_next_chunk, tile_dim, true)); 
             }
         }
 
         Self {
-            scale: 0.75,
+            scale: 2.0,//0.75,
             to_next_chunk,
             grass,
             tile_dim,
@@ -164,7 +166,7 @@ impl WorldDrawer {
 
     pub fn change_zoom(&mut self, delta: i32) {
         if self.to_next_chunk - delta >= 0 && self.to_next_chunk - delta <= 10 {
-            self.to_next_chunk -= delta;
+            self.scale -= delta as f32 * 100.0;
         }
     }
 
@@ -185,7 +187,7 @@ impl WorldDrawer {
         set_default_camera();
 
         let parameters = DrawTextureParams {
-                dest_size: Some(Vec2::new(256.0 * self.scale, 256.0 * self.scale)),
+                dest_size: Some(Vec2::new(CHUNK_RESOLUTION * self.scale, CHUNK_RESOLUTION * self.scale)),
                 ..Default::default()
             };
 
