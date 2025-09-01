@@ -1,8 +1,55 @@
 use std::sync::Arc;
 
+use wgpu::util::DeviceExt;
 use winit::{
     application::ApplicationHandler, event::*, event_loop::{ActiveEventLoop, EventLoop}, keyboard::{KeyCode, PhysicalKey}, window::Window
 };
+
+// Struct to describe vertex data
+#[repr(C)]
+#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+struct Vertex {
+    position: [f32; 3],
+    color: [f32; 3],
+}
+
+impl Vertex {
+    fn desc() -> wgpu::VertexBufferLayout<'static> {
+        // A description of how the data is structured in the vertex buffer
+        wgpu::VertexBufferLayout {
+            // Size of the data for each vertex
+            array_stride: std::mem::size_of::<Vertex>() as wgpu::BufferAddress,
+            // Whether each element of the array represents per-vertex data or per-instance data
+            step_mode: wgpu::VertexStepMode::Vertex,
+            // Structure of each vertexes' data
+            attributes: &[
+                wgpu::VertexAttribute {
+                    // First attribute starts at the beginning of the vertex data
+                    offset: 0,
+                    // This attribute will correspond to @location(0) in the shader
+                    shader_location: 0,
+                    // Format as Vec3<f32>
+                    format: wgpu::VertexFormat::Float32x3,
+                },
+                wgpu::VertexAttribute {
+                    // Second attribute starts with an offset equal to the size of the first attribute
+                    offset: std::mem::size_of::<[f32; 3]>() as wgpu::BufferAddress,
+                    // This attribute will correspond to @location(1) in the shader
+                    shader_location: 1,
+                    // Format as Vec3<f32>
+                    format: wgpu::VertexFormat::Float32x3,
+                }
+            ]
+        }
+    }
+}
+
+// List of vertices to be drawn
+const VERTICES: &[Vertex] = &[
+    Vertex { position: [0.0, 0.5, 0.0], color: [1.0, 0.0, 0.0] },
+    Vertex { position: [-0.5, -0.5, 0.0], color: [0.0, 1.0, 0.0] },
+    Vertex { position: [0.5, -0.5, 0.0], color: [0.0, 0.0, 1.0] },
+];
 
 // This will store the state of our game
 pub struct State {
@@ -12,21 +59,25 @@ pub struct State {
     config: wgpu::SurfaceConfiguration,
     is_surface_configured: bool,
     render_pipeline: wgpu::RenderPipeline,
+    vertex_buffer: wgpu::Buffer,
+    num_vertices: u32,
     window: Arc<Window>,
 }
 
 impl State {
     async fn new(window: Arc<Window>) -> anyhow::Result<State> {
+        // Get size of window
         let size = window.inner_size();
 
-        // The instance is a handle to our GPU
-        // BackendBit::PRIMARY => Vulkan + Metal + DX12 + Browser WebGPU
+        // Create wgpu instance used to create adapter and surface
         let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
             ..Default::default()
         });
 
+        // Create surface to draw to using the window Arc pointer, allowing wgpu to talk to winit
         let surface = instance.create_surface(window.clone()).unwrap();
 
+        // Create adapter to interface with GPU hardware
         let adapter = instance
             .request_adapter(&wgpu::RequestAdapterOptions {
                 power_preference: wgpu::PowerPreference::default(),
@@ -35,6 +86,7 @@ impl State {
             })
             .await?;
 
+        // Create device to use GPU resources and queue to submit commands to GPU
         let (device, queue) = adapter
             .request_device(&wgpu::DeviceDescriptor {
                 label: None,
@@ -45,14 +97,15 @@ impl State {
             })
             .await?;
 
+        // Get the capabilities of the surface
         let surface_caps = surface.get_capabilities(&adapter);
-        // Shader code in this tutorial assumes an sRGB surface texture. Using a different
-        // one will result in all the colors coming out darker. If you want to support non
-        // sRGB surfaces, you'll need to account for that when drawing to the frame.
+        // Loop through the available formats for the surface and find one that is sRGB
         let surface_format = surface_caps.formats.iter()
             .find(|f| f.is_srgb())
             .copied()
             .unwrap_or(surface_caps.formats[0]);
+        // Create surface configuration using the surface format and size of window as well as
+        // Fifo present mode which is the only one that is guaranteed to be supported (also allows v-sync)
         let config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             format: surface_format,
@@ -64,8 +117,10 @@ impl State {
             desired_maximum_frame_latency: 2,
         };
 
+        // Include the shader code
         let shader = device.create_shader_module(wgpu::include_wgsl!("shader.wgsl"));
 
+        // Create a render pipeline layout
         let render_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Render Pipeline Layout"),
@@ -73,18 +128,22 @@ impl State {
                 push_constant_ranges: &[],
             });
 
+        // Create render pipeline to describe the render process
         let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("Render Pipeline"),
             layout: Some(&render_pipeline_layout),
-            vertex: wgpu::VertexState{
+            vertex: wgpu::VertexState{  
                 module: &shader,
-                entry_point: Some("vs_main"),
-                buffers: &[],
+                entry_point: Some("vs_main"), // Use vs_main as the vertex shader
+                buffers: &[
+                    // Get a description of the vertex buffer
+                    Vertex::desc(),
+                ],
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
             },
             fragment: Some(wgpu::FragmentState {
                 module: &shader,
-                entry_point: Some("fs_main"),
+                entry_point: Some("fs_main"), // Use fs_main as the fragment shader
                 targets: &[Some(wgpu::ColorTargetState {
                     format: config.format,
                     blend: Some(wgpu::BlendState::REPLACE),
@@ -95,7 +154,7 @@ impl State {
             primitive: wgpu::PrimitiveState {
                 topology: wgpu::PrimitiveTopology::TriangleList,
                 strip_index_format: None,
-                front_face: wgpu::FrontFace::Ccw,
+                front_face: wgpu::FrontFace::Ccw, // Vertices in ccw orientation are facing the camera
                 cull_mode: Some(wgpu::Face::Back),
                 polygon_mode: wgpu::PolygonMode::Fill,
                 unclipped_depth: false,
@@ -103,13 +162,24 @@ impl State {
             },
             depth_stencil: None,
             multisample: wgpu::MultisampleState {
-                count: 1,
+                count: 1, // No multisampling
                 mask: !0,
                 alpha_to_coverage_enabled: false,
             },
             multiview: None,
             cache: None,
         });
+
+        // Create vertex buffer from VERTICES slice
+        let vertex_buffer = device.create_buffer_init(
+            &wgpu::util::BufferInitDescriptor {
+                label: Some("Vertex Buffer"),
+                contents: bytemuck::cast_slice(VERTICES),
+                usage: wgpu::BufferUsages::VERTEX,
+            }
+        );
+
+        let num_vertices = VERTICES.len() as u32;
 
         Ok(Self {
             surface,
@@ -118,11 +188,14 @@ impl State {
             config,
             is_surface_configured: false,
             render_pipeline,
+            vertex_buffer,
+            num_vertices,
             window,
         })
     }
 
     pub fn resize(&mut self, width: u32, height: u32) {
+        // Update size of window and configure surface
         if width > 0 && height > 0 {
             self.config.width = width;
             self.config.height = height;
@@ -131,7 +204,8 @@ impl State {
         }
     }
 
-    fn handle_key(&self, event_loop: &ActiveEventLoop, code: KeyCode, is_pressed: bool) {
+    fn handle_key(&mut self, event_loop: &ActiveEventLoop, code: KeyCode, is_pressed: bool) {
+        // Check which key was pressed
         match (code, is_pressed) {
             (KeyCode::Escape, true) => event_loop.exit(),
             _ => {}
@@ -143,36 +217,46 @@ impl State {
     }
     
     pub fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
+        // Request winit to redraw the window
         self.window.request_redraw();
 
         // We can't render unless the surface is configured
         if !self.is_surface_configured {
             return Ok(());
         }
-            
+        
+        // Get the next texture to be presented by the swapchain
         let output = self.surface.get_current_texture()?;
 
+        // Create a TextureView type from the Texture type which specifies how the 
+        // data in the Texture should be read and used by the GPU (e.g. format, dimension, mipmap levels)
         let view = output.texture.create_view(&wgpu::TextureViewDescriptor::default());
 
+        // Create a CommandEncoder which is used to create a CommandBuffer which is then added to the queue
         let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("Render Encoder"),
         });
 
         {
+            // Begin the render pass
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("Render Pass"),
+                // A slice of all the different textures that the fragment shader's output will be written to
                 color_attachments: &[
                     Some(wgpu::RenderPassColorAttachment {
                         view: &view,
                         depth_slice: None,
                         resolve_target: None,
+                        // List of operations to perform at the start (load) and end of the render pass
                         ops: wgpu::Operations {
+                            // On load, clear the screen
                             load: wgpu::LoadOp::Clear(wgpu::Color {
                                 r: 0.1,
                                 g: 0.2,
                                 b: 0.3,
                                 a: 1.0,
                             }),
+                            // At the end of the render pass, store the result onto the texture
                             store: wgpu::StoreOp::Store,
                         },
                     })],
@@ -181,12 +265,18 @@ impl State {
                 timestamp_writes: None,
             });
 
+            // Use the render pipeline specified earlier
             render_pass.set_pipeline(&self.render_pipeline);
-            render_pass.draw(0..3, 0..1);
+            // Create a vertex buffer at slot 0 using all (..) of self.vertex_buffer
+            render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
+            // Creates a range of vertices and instances for the shader to process
+            render_pass.draw(0..self.num_vertices, 0..1);
         }
 
-        // submit will accept anything that implements IntoIter
+        // Add the CommandBuffer created by the CommandEncoder onto the queue
+        // (Submit will accept anything that implements IntoIter)
         self.queue.submit(std::iter::once(encoder.finish()));
+        // Display the texture
         output.present();
 
         Ok(())
@@ -207,16 +297,20 @@ impl App {
 
 impl ApplicationHandler<State> for App {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+        // Use default values for window
         #[allow(unused_mut)]
         let mut window_attributes = Window::default_attributes();
 
+        // Set an Arc pointer to point to the new window
         let window = Arc::new(event_loop.create_window(window_attributes).unwrap());
 
+        // Use pollster to wait until the State struct has been created
         self.state = Some(pollster::block_on(State::new(window)).unwrap());
     }
 
     #[allow(unused_mut)]
     fn user_event(&mut self, _event_loop: &ActiveEventLoop, mut event: State) {
+        // Winit allows a new object of type <T> to be passed by EventLoopProxy::send_event which runs this
         self.state = Some(event);
     }
 
@@ -226,15 +320,18 @@ impl ApplicationHandler<State> for App {
         _window_id: winit::window::WindowId,
         event: WindowEvent,
     ) {
+        // If self.state is None, do nothing
         let state = match &mut self.state {
             Some(canvas) => canvas,
             None => return,
         };
 
+        // Handle the event
         match event {
             WindowEvent::CloseRequested => event_loop.exit(),
             WindowEvent::Resized(size) => state.resize(size.width, size.height),
             WindowEvent::RedrawRequested => {
+                // If a redraw is requested, update and render state and handle errors with render
                 state.update();
                 match state.render() {
                     Ok(_) => {}
@@ -248,6 +345,7 @@ impl ApplicationHandler<State> for App {
                     }
                 }
             }
+            // Send keyboard input event to state to be handled
             WindowEvent::KeyboardInput {
                 event:
                     KeyEvent {
@@ -263,10 +361,14 @@ impl ApplicationHandler<State> for App {
 }
 
 pub fn run() -> anyhow::Result<()> {
+    // Using env_logger to improve error messages from wgpu
     env_logger::init();
 
+    // Create event loop for winit
     let event_loop = EventLoop::with_user_event().build()?;
+    // Create App object
     let mut app = App::new();
+    // Run the application
     event_loop.run_app(&mut app)?;
 
     Ok(())
