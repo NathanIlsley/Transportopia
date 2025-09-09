@@ -1,5 +1,6 @@
-use std::sync::Arc;
+mod texture;
 
+use std::sync::Arc;
 use wgpu::util::DeviceExt;
 use winit::{
     application::ApplicationHandler, event::*, event_loop::{ActiveEventLoop, EventLoop}, keyboard::{KeyCode, PhysicalKey}, window::Window
@@ -10,7 +11,7 @@ use winit::{
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 struct Vertex {
     position: [f32; 3],
-    color: [f32; 3],
+    tex_coords: [f32; 2],
 }
 
 impl Vertex {
@@ -37,18 +38,32 @@ impl Vertex {
                     // This attribute will correspond to @location(1) in the shader
                     shader_location: 1,
                     // Format as Vec3<f32>
-                    format: wgpu::VertexFormat::Float32x3,
+                    format: wgpu::VertexFormat::Float32x2,
                 }
             ]
         }
     }
 }
 
-// List of vertices to be drawn
 const VERTICES: &[Vertex] = &[
-    Vertex { position: [0.0, 0.5, 0.0], color: [1.0, 0.0, 0.0] },
-    Vertex { position: [-0.5, -0.5, 0.0], color: [0.0, 1.0, 0.0] },
-    Vertex { position: [0.5, -0.5, 0.0], color: [0.0, 0.0, 1.0] },
+    // Changed
+    Vertex { position: [-0.5, -0.5, 0.0], tex_coords: [0.0, 1.0], },
+    Vertex { position: [-0.5, 0.5, 0.0], tex_coords: [0.0, 0.0], },
+    Vertex { position: [0.5, 0.5, 0.0], tex_coords: [1.0, 0.0], },
+    Vertex { position: [0.5, -0.5, 0.0], tex_coords: [1.0, 1.0], },
+
+    Vertex { position: [-0.0, -1.0, 0.0], tex_coords: [0.0, 1.0], },
+    Vertex { position: [-0.0, 0.0, 0.0], tex_coords: [0.0, 0.0], },
+    Vertex { position: [1.0, 0.0, 0.0], tex_coords: [1.0, 0.0], },
+    Vertex { position: [1.0, -1.0, 0.0], tex_coords: [1.0, 1.0], },
+];
+
+const INDICES: &[u16] = &[
+    0, 1, 2,
+    2, 3, 0,
+
+    4, 5, 6,
+    6, 7, 4,
 ];
 
 // This will store the state of our game
@@ -58,10 +73,13 @@ pub struct State {
     queue: wgpu::Queue,
     config: wgpu::SurfaceConfiguration,
     is_surface_configured: bool,
+    window: Arc<Window>,
     render_pipeline: wgpu::RenderPipeline,
     vertex_buffer: wgpu::Buffer,
-    num_vertices: u32,
-    window: Arc<Window>,
+    index_buffer: wgpu::Buffer,
+    num_indices: u32,
+    diffuse_bind_group: wgpu::BindGroup,
+    diffuse_texture: texture::Texture,
 }
 
 impl State {
@@ -117,6 +135,63 @@ impl State {
             desired_maximum_frame_latency: 2,
         };
 
+        // Load grass texture as byte array
+        let diffuse_bytes = include_bytes!("..\\assets\\grass_0.png");
+        // Create texture from bytes
+        let diffuse_texture = texture::Texture::from_bytes(
+            &device,
+            &queue,
+            diffuse_bytes,
+            "diffuse_texture",
+        ).unwrap();
+
+        // Create a bind group layout to describe the shader bindings 
+        let texture_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                entries: &[
+                    // Create a binding at 0 for the texture visible to the fragment shader
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            multisampled: false,
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        },
+                        count: None,
+                    },
+                    // Create a binding at 1 for the sampler visible to the fragment shader
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        // This should match the filterable field of the
+                        // corresponding Texture entry above.
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                        count: None,
+                    },
+                ],
+                label: Some("texture_bind_group_layout"),
+            });
+        // Create a bind group to hold the actual bindings for the shader
+        let diffuse_bind_group = device.create_bind_group(
+            &wgpu::BindGroupDescriptor {
+                layout: &texture_bind_group_layout,
+                entries: &[
+                    // Attach the diffuse_texture_view to binding 0 of the shader
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::TextureView(&diffuse_texture.view),
+                    },
+                    // Attach the diffuse_sampler to binding 1 of the shader
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::Sampler(&diffuse_texture.sampler),
+                    }
+                ],
+                label: Some("diffuse_bind_group"),
+            }
+        );
+        
         // Include the shader code
         let shader = device.create_shader_module(wgpu::include_wgsl!("shader.wgsl"));
 
@@ -124,7 +199,7 @@ impl State {
         let render_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Render Pipeline Layout"),
-                bind_group_layouts: &[],
+                bind_group_layouts: &[&texture_bind_group_layout],
                 push_constant_ranges: &[],
             });
 
@@ -146,7 +221,7 @@ impl State {
                 entry_point: Some("fs_main"), // Use fs_main as the fragment shader
                 targets: &[Some(wgpu::ColorTargetState {
                     format: config.format,
-                    blend: Some(wgpu::BlendState::REPLACE),
+                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
                     write_mask: wgpu::ColorWrites::ALL,
                 })],
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
@@ -154,7 +229,7 @@ impl State {
             primitive: wgpu::PrimitiveState {
                 topology: wgpu::PrimitiveTopology::TriangleList,
                 strip_index_format: None,
-                front_face: wgpu::FrontFace::Ccw, // Vertices in ccw orientation are facing the camera
+                front_face: wgpu::FrontFace::Cw, // Vertices in cw orientation are facing the camera
                 cull_mode: Some(wgpu::Face::Back),
                 polygon_mode: wgpu::PolygonMode::Fill,
                 unclipped_depth: false,
@@ -179,7 +254,17 @@ impl State {
             }
         );
 
-        let num_vertices = VERTICES.len() as u32;
+        // Create index buffer from INDICES slice
+        let index_buffer = device.create_buffer_init(
+            &wgpu::util::BufferInitDescriptor {
+                label: Some("Index Buffer"),
+                contents: bytemuck::cast_slice(INDICES),
+                usage: wgpu::BufferUsages::INDEX,
+            }
+        );
+
+        // Record the number of indices in the index buffer
+        let num_indices = INDICES.len() as u32;
 
         Ok(Self {
             surface,
@@ -187,10 +272,13 @@ impl State {
             queue,
             config,
             is_surface_configured: false,
+            window,
             render_pipeline,
             vertex_buffer,
-            num_vertices,
-            window,
+            index_buffer,
+            num_indices,
+            diffuse_bind_group,
+            diffuse_texture,
         })
     }
 
@@ -267,10 +355,15 @@ impl State {
 
             // Use the render pipeline specified earlier
             render_pass.set_pipeline(&self.render_pipeline);
+            // Use the bind group created earlier for the texture
+            render_pass.set_bind_group(0, &self.diffuse_bind_group, &[]);
             // Create a vertex buffer at slot 0 using all (..) of self.vertex_buffer
             render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
-            // Creates a range of vertices and instances for the shader to process
-            render_pass.draw(0..self.num_vertices, 0..1);
+            // Create an index buffer using all (..) of self.index_buffer
+            render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+
+            // Draw the vertices of the vertex buffer as triangles using the indices in the index buffer
+            render_pass.draw_indexed(0..self.num_indices, 0, 0..1);
         }
 
         // Add the CommandBuffer created by the CommandEncoder onto the queue
