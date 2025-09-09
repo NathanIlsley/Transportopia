@@ -78,8 +78,10 @@ pub struct State {
     vertex_buffer: wgpu::Buffer,
     index_buffer: wgpu::Buffer,
     num_indices: u32,
-    diffuse_bind_group: wgpu::BindGroup,
-    diffuse_texture: texture::Texture,
+    grass_0_bind_group: wgpu::BindGroup,
+    track_straight_0_bind_group: wgpu::BindGroup, // TEST
+    texture_select: bool, // TEST
+    grass_0_texture: texture::Texture,
 }
 
 impl State {
@@ -134,63 +136,90 @@ impl State {
             view_formats: vec![],
             desired_maximum_frame_latency: 2,
         };
-
-        // Load grass texture as byte array
-        let diffuse_bytes = include_bytes!("..\\assets\\grass_0.png");
-        // Create texture from bytes
-        let diffuse_texture = texture::Texture::from_bytes(
-            &device,
-            &queue,
-            diffuse_bytes,
-            "diffuse_texture",
-        ).unwrap();
-
-        // Create a bind group layout to describe the shader bindings 
+        
+        // Create a bind group layout to describe the shader bindings for textures
         let texture_bind_group_layout =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                entries: &[
-                    // Create a binding at 0 for the texture visible to the fragment shader
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Texture {
-                            multisampled: false,
-                            view_dimension: wgpu::TextureViewDimension::D2,
-                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                        },
-                        count: None,
+        device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            entries: &[
+                // Create a binding at 0 for the texture visible to the fragment shader
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        multisampled: false,
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
                     },
-                    // Create a binding at 1 for the sampler visible to the fragment shader
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 1,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        // This should match the filterable field of the
-                        // corresponding Texture entry above.
-                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                        count: None,
-                    },
+                    count: None,
+                },
+                // Create a binding at 1 for the sampler visible to the fragment shader
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    // This should match the filterable field of the
+                    // corresponding Texture entry above.
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
                 ],
                 label: Some("texture_bind_group_layout"),
-            });
-        // Create a bind group to hold the actual bindings for the shader
-        let diffuse_bind_group = device.create_bind_group(
+            }
+        );
+
+        // Load grass texture as byte array
+        let grass_0_bytes = include_bytes!("..\\assets\\grass_0.png");
+        // Create texture from bytes
+        let grass_0_texture = texture::Texture::from_bytes(
+            &device,
+            &queue,
+            grass_0_bytes,
+            "diffuse_texture",
+        ).unwrap();
+        // Create a bind group to hold the actual bindings to grass texture for the shader
+        let grass_0_bind_group = device.create_bind_group(
             &wgpu::BindGroupDescriptor {
                 layout: &texture_bind_group_layout,
                 entries: &[
                     // Attach the diffuse_texture_view to binding 0 of the shader
                     wgpu::BindGroupEntry {
                         binding: 0,
-                        resource: wgpu::BindingResource::TextureView(&diffuse_texture.view),
+                        resource: wgpu::BindingResource::TextureView(&grass_0_texture.view),
                     },
                     // Attach the diffuse_sampler to binding 1 of the shader
                     wgpu::BindGroupEntry {
                         binding: 1,
-                        resource: wgpu::BindingResource::Sampler(&diffuse_texture.sampler),
+                        resource: wgpu::BindingResource::Sampler(&grass_0_texture.sampler),
                     }
                 ],
                 label: Some("diffuse_bind_group"),
             }
         );
+
+        // TEST
+        let track_straight_0_bytes = include_bytes!("..\\assets\\track_straight_0.png");
+        let track_straight_0_texture = texture::Texture::from_bytes(
+            &device,
+            &queue,
+            track_straight_0_bytes,
+            "diffuse_texture",
+        ).unwrap();
+        let track_straight_0_bind_group = device.create_bind_group(
+            &wgpu::BindGroupDescriptor {
+                layout: &texture_bind_group_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::TextureView(&track_straight_0_texture.view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::Sampler(&track_straight_0_texture.sampler),
+                    }
+                ],
+                label: Some("diffuse_bind_group"),
+            }
+        );
+        // TEST END
         
         // Include the shader code
         let shader = device.create_shader_module(wgpu::include_wgsl!("shader.wgsl"));
@@ -277,8 +306,10 @@ impl State {
             vertex_buffer,
             index_buffer,
             num_indices,
-            diffuse_bind_group,
-            diffuse_texture,
+            grass_0_bind_group,
+            track_straight_0_bind_group, // TEST
+            texture_select: true, // TEST
+            grass_0_texture,
         })
     }
 
@@ -296,6 +327,9 @@ impl State {
         // Check which key was pressed
         match (code, is_pressed) {
             (KeyCode::Escape, true) => event_loop.exit(),
+            (KeyCode::Space, true) => {
+                self.texture_select = !self.texture_select; // TEST
+            },
             _ => {}
         }
     }
@@ -356,7 +390,7 @@ impl State {
             // Use the render pipeline specified earlier
             render_pass.set_pipeline(&self.render_pipeline);
             // Use the bind group created earlier for the texture
-            render_pass.set_bind_group(0, &self.diffuse_bind_group, &[]);
+            render_pass.set_bind_group(0, if self.texture_select {&self.grass_0_bind_group} else {&self.track_straight_0_bind_group}, &[]);
             // Create a vertex buffer at slot 0 using all (..) of self.vertex_buffer
             render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
             // Create an index buffer using all (..) of self.index_buffer
