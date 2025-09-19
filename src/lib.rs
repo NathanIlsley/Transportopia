@@ -5,6 +5,65 @@ use wgpu::util::DeviceExt;
 use winit::{
     application::ApplicationHandler, event::*, event_loop::{ActiveEventLoop, EventLoop}, keyboard::{KeyCode, PhysicalKey}, window::Window
 };
+use cgmath::prelude::*;
+
+// Struct to record position and rotation of instances
+struct Instance {
+    position: cgmath::Vector3<f32>,
+    rotation: cgmath::Quaternion<f32>,
+}
+
+impl Instance {
+    // Convert the Instance to InnstaceRaw
+    fn to_raw(&self) -> InstanceRaw {
+        InstanceRaw {
+            model: (cgmath::Matrix4::from_translation(self.position) * cgmath::Matrix4::from(self.rotation)).into(),
+        }
+    }
+}
+
+// Struct to represent the position and rotation of an instance using a matrix transformation
+#[repr(C)]
+#[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+struct InstanceRaw {
+    model: [[f32; 4]; 4],
+}
+
+impl InstanceRaw {
+    fn desc() -> wgpu::VertexBufferLayout<'static> {
+        wgpu::VertexBufferLayout {
+            array_stride: std::mem::size_of::<InstanceRaw>() as wgpu::BufferAddress,
+            // We need to switch from using a step mode of Vertex to Instance
+            // This means that our shaders will only change to use the next
+            // instance when the shader starts processing a new instance
+            step_mode: wgpu::VertexStepMode::Instance,
+            attributes: &[
+                // A mat4 takes up 4 vertex slots as it is technically 4 vec4s. We need to define a slot
+                // for each vec4. We'll have to reassemble the mat4 in the shader.
+                wgpu::VertexAttribute {
+                    offset: 0,
+                    shader_location: 2,
+                    format: wgpu::VertexFormat::Float32x4,
+                },
+                wgpu::VertexAttribute {
+                    offset: std::mem::size_of::<[f32; 4]>() as wgpu::BufferAddress,
+                    shader_location: 3,
+                    format: wgpu::VertexFormat::Float32x4,
+                },
+                wgpu::VertexAttribute {
+                    offset: std::mem::size_of::<[f32; 8]>() as wgpu::BufferAddress,
+                    shader_location: 4,
+                    format: wgpu::VertexFormat::Float32x4,
+                },
+                wgpu::VertexAttribute {
+                    offset: std::mem::size_of::<[f32; 12]>() as wgpu::BufferAddress,
+                    shader_location: 5,
+                    format: wgpu::VertexFormat::Float32x4,
+                },
+            ],
+        }
+    }
+}
 
 // Struct to describe vertex data
 #[repr(C)]
@@ -51,19 +110,11 @@ const VERTICES: &[Vertex] = &[
     Vertex { position: [-0.5, 0.5, 0.0], tex_coords: [0.0, 0.0], },
     Vertex { position: [0.5, 0.5, 0.0], tex_coords: [1.0, 0.0], },
     Vertex { position: [0.5, -0.5, 0.0], tex_coords: [1.0, 1.0], },
-
-    Vertex { position: [-0.0, -1.0, 0.0], tex_coords: [0.0, 1.0], },
-    Vertex { position: [-0.0, 0.0, 0.0], tex_coords: [0.0, 0.0], },
-    Vertex { position: [1.0, 0.0, 0.0], tex_coords: [1.0, 0.0], },
-    Vertex { position: [1.0, -1.0, 0.0], tex_coords: [1.0, 1.0], },
 ];
 
 const INDICES: &[u16] = &[
     0, 1, 2,
     2, 3, 0,
-
-    4, 5, 6,
-    6, 7, 4,
 ];
 
 // This will store the state of our game
@@ -78,6 +129,8 @@ pub struct State {
     vertex_buffer: wgpu::Buffer,
     index_buffer: wgpu::Buffer,
     num_indices: u32,
+    instances: Vec<Instance>,
+    instance_buffer: wgpu::Buffer,
     grass_0_bind_group: wgpu::BindGroup,
     track_straight_0_bind_group: wgpu::BindGroup, // TEST
     texture_select: bool, // TEST
@@ -242,6 +295,8 @@ impl State {
                 buffers: &[
                     // Get a description of the vertex buffer
                     Vertex::desc(),
+                    // Get a description of the instance buffer
+                    InstanceRaw::desc(),
                 ],
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
             },
@@ -295,6 +350,30 @@ impl State {
         // Record the number of indices in the index buffer
         let num_indices = INDICES.len() as u32;
 
+        // Create instances at given positions and rotations
+        let instances = vec![
+            Instance {
+                position: cgmath::Vector3 { x: 0.0, y: 0.0, z: 0.0 },
+                rotation: cgmath::Quaternion::from_axis_angle(cgmath::Vector3::unit_z(), cgmath::Deg(0.0)),
+            },
+            Instance {
+                position: cgmath::Vector3 { x: 0.5, y: 0.8, z: 0.0 },
+                rotation: cgmath::Quaternion::from_axis_angle(cgmath::Vector3::unit_z(), cgmath::Deg(0.0)),
+            },
+        ];
+
+        // Turn each Instance into InstanceRaw and collect into a Vec
+        let instance_data = instances.iter().map(Instance::to_raw).collect::<Vec<_>>();
+        // Create instance buffer that contains the instance data
+        let instance_buffer = device.create_buffer_init(
+            &wgpu::util::BufferInitDescriptor {
+                label: Some("Instance Buffer"),
+                contents: bytemuck::cast_slice(&instance_data),
+                // Use this buffer in the vertex shader
+                usage: wgpu::BufferUsages::VERTEX,
+            }
+        );
+
         Ok(Self {
             surface,
             device,
@@ -306,6 +385,8 @@ impl State {
             vertex_buffer,
             index_buffer,
             num_indices,
+            instances,
+            instance_buffer,
             grass_0_bind_group,
             track_straight_0_bind_group, // TEST
             texture_select: true, // TEST
@@ -393,11 +474,12 @@ impl State {
             render_pass.set_bind_group(0, if self.texture_select {&self.grass_0_bind_group} else {&self.track_straight_0_bind_group}, &[]);
             // Create a vertex buffer at slot 0 using all (..) of self.vertex_buffer
             render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
+            render_pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
             // Create an index buffer using all (..) of self.index_buffer
             render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
 
             // Draw the vertices of the vertex buffer as triangles using the indices in the index buffer
-            render_pass.draw_indexed(0..self.num_indices, 0, 0..1);
+            render_pass.draw_indexed(0..self.num_indices, 0, 0..self.instances.len() as u32);
         }
 
         // Add the CommandBuffer created by the CommandEncoder onto the queue
