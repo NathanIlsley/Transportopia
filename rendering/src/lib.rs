@@ -1,14 +1,21 @@
-pub fn add(left: u64, right: u64) -> u64 {
-    left + right
-}
+mod instance;
+mod vertex;
+mod texture;
+mod state;
+mod app;
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+use winit::event_loop::EventLoop;
 
-    #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
-    }
+pub fn run() -> anyhow::Result<()> {
+    // Using env_logger to improve error messages from wgpu
+    env_logger::init();
+
+    // Create event loop for winit
+    let event_loop = EventLoop::with_user_event().build()?;
+    // Create App object
+    let mut app = app::App::new();
+    // Run the application
+    event_loop.run_app(&mut app)?;
+
+    Ok(())
 }

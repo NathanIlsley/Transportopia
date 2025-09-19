@@ -1,5 +1,5 @@
-use transportopia::run;
+use rendering::run;
 
 fn main() {
-    run();
+    run().unwrap_or_else(|_| {println!("Application encountered an error and had to close.")});
 }
