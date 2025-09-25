@@ -2,13 +2,15 @@
 pub(crate) struct Instance {
     pub(crate) position: cgmath::Vector3<f32>,
     pub(crate) rotation: cgmath::Quaternion<f32>,
+    pub(crate) scale: cgmath::Vector2<f32>,
 }
 
 impl Instance {
     // Convert the Instance to InnstaceRaw
     pub(crate) fn to_raw(&self) -> InstanceRaw {
+        let scale_matrix = cgmath::Matrix4::from_nonuniform_scale(self.scale.x, self.scale.y, 1.0);
         InstanceRaw {
-            model: (cgmath::Matrix4::from_translation(self.position) * cgmath::Matrix4::from(self.rotation)).into(),
+            model: (cgmath::Matrix4::from_translation(self.position) * cgmath::Matrix4::from(self.rotation) * scale_matrix).into(),
         }
     }
 }

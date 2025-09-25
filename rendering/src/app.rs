@@ -1,23 +1,29 @@
-use crate::state;
+use crate::{sprite::Sprite, state};
 
 use std::sync::Arc;
 use winit::{
-    application::ApplicationHandler, event::*, event_loop::ActiveEventLoop, keyboard::PhysicalKey, window::Window
+    application::ApplicationHandler, event::*, event_loop::ActiveEventLoop, keyboard::{KeyCode, PhysicalKey}, window::Window
 };
 
-pub(crate) struct App {
-    state: Option<state::State>,
+pub(crate) struct App<S: Sprite> {
+    state: Option<state::State<S>>,
+    sprites: Vec<S>,
+    textures: Vec<&'static [u8]>,
+    key_handler: fn(&ActiveEventLoop, KeyCode, bool),
 }
 
-impl App {
-    pub(crate) fn new() -> Self {
+impl<S: Sprite> App<S> {
+    pub(crate) fn new(sprites: Vec<S>, textures: Vec<&'static [u8]>, key_handler: fn(&ActiveEventLoop, KeyCode, bool)) -> Self {
         Self {
             state: None,
+            sprites,
+            textures,
+            key_handler,
         }
     }
 }
 
-impl ApplicationHandler<state::State> for App {
+impl<S: Sprite + Clone + 'static> ApplicationHandler<state::State<S>> for App<S> {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         // Use default values for window
         #[allow(unused_mut)]
@@ -27,11 +33,11 @@ impl ApplicationHandler<state::State> for App {
         let window = Arc::new(event_loop.create_window(window_attributes).unwrap());
 
         // Use pollster to wait until the State struct has been created
-        self.state = Some(pollster::block_on(state::State::new(window)).unwrap());
+        self.state = Some(pollster::block_on(state::State::new(window, self.sprites.clone(), self.textures.as_slice())).unwrap());
     }
 
     #[allow(unused_mut)]
-    fn user_event(&mut self, _event_loop: &ActiveEventLoop, mut event: state::State) {
+    fn user_event(&mut self, _event_loop: &ActiveEventLoop, mut event: state::State<S>) {
         // Winit allows a new object of type <T> to be passed by EventLoopProxy::send_event which runs this
         self.state = Some(event);
     }
@@ -76,7 +82,7 @@ impl ApplicationHandler<state::State> for App {
                         ..
                     },
                 ..
-            } => state.handle_key(event_loop, code, key_state.is_pressed()),
+            } => (self.key_handler)(event_loop, code, key_state.is_pressed()),
             _ => {}
         }
     }
