@@ -11,3 +11,4 @@ edition = "2024"
 anyhow = "1.0"
 rendering = { path = "rendering" }
 winit = { version = "0.30", features = ["android-native-activity"] }
+cgmath = "0.18"

@@ -1,13 +1,13 @@
+use crate::camera;
+use crate::sprite;
 use crate::instance;
-use crate::sprite::Sprite;
 use crate::vertex;
 use crate::texture;
 
 use std::sync::Arc;
 use winit::window::Window;
-use cgmath::prelude::*;
 use wgpu::util::DeviceExt;
-use std::time::{Instant, Duration};
+use std::time::Instant;
 
 const VERTICES: &[vertex::Vertex] = &[
     vertex::Vertex { position: [-0.5, -0.5, 0.0], tex_coords: [0.0, 1.0], },
@@ -22,7 +22,7 @@ const INDICES: &[u16] = &[
 ];
 
 // This will store the state of our game
-pub(crate) struct State<S: Sprite> {
+pub(crate) struct State<C: camera::Camera, S: sprite::Sprite> {
     last_instant: Instant,
     surface: wgpu::Surface<'static>,
     device: wgpu::Device,
@@ -30,17 +30,20 @@ pub(crate) struct State<S: Sprite> {
     config: wgpu::SurfaceConfiguration,
     is_surface_configured: bool,
     pub(crate) window: Arc<Window>,
-    render_pipeline: wgpu::RenderPipeline,
     vertex_buffer: wgpu::Buffer,
     index_buffer: wgpu::Buffer,
     num_indices: u32,
+    texture_bind_groups: Vec<wgpu::BindGroup>,
     sprites: Vec<S>,
     instance_buffer: wgpu::Buffer,
-    texture_bind_groups: Vec<wgpu::BindGroup>,
+    camera: C,
+    camera_buffer: wgpu::Buffer,
+    camera_bind_group: wgpu::BindGroup,
+    render_pipeline: wgpu::RenderPipeline,
 }
 
-impl<S: Sprite> State<S> {
-    pub(crate) async fn new(window: Arc<Window>, sprites: Vec<S>, textures: &[&[u8]]) -> anyhow::Result<State<S>> {
+impl<C: camera::Camera, S: sprite::Sprite> State<C, S> {
+    pub(crate) async fn new(window: Arc<Window>, camera: C, sprites: Vec<S>, textures: &[&[u8]]) -> anyhow::Result<State<C, S>> {
         let last_instant = Instant::now();
         
         // Get size of window
@@ -126,58 +129,7 @@ impl<S: Sprite> State<S> {
         // Include the shader code
         let shader = device.create_shader_module(wgpu::include_wgsl!("shader.wgsl"));
         
-        // Create a render pipeline layout
-        let render_pipeline_layout =
-        device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("Render Pipeline Layout"),
-            bind_group_layouts: &[&texture_bind_group_layout],
-            push_constant_ranges: &[],
-            });
-            
-            // Create render pipeline to describe the render process
-            let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                label: Some("Render Pipeline"),
-                layout: Some(&render_pipeline_layout),
-                vertex: wgpu::VertexState{  
-                    module: &shader,
-                    entry_point: Some("vs_main"), // Use vs_main as the vertex shader
-                buffers: &[
-                    // Get a description of the vertex buffer
-                    vertex::Vertex::desc(),
-                    // Get a description of the instance buffer
-                    instance::InstanceRaw::desc(),
-                    ],
-                    compilation_options: wgpu::PipelineCompilationOptions::default(),
-                },
-                fragment: Some(wgpu::FragmentState {
-                    module: &shader,
-                    entry_point: Some("fs_main"), // Use fs_main as the fragment shader
-                    targets: &[Some(wgpu::ColorTargetState {
-                        format: config.format,
-                        blend: Some(wgpu::BlendState::ALPHA_BLENDING),
-                        write_mask: wgpu::ColorWrites::ALL,
-                    })],
-                    compilation_options: wgpu::PipelineCompilationOptions::default(),
-                }),
-                primitive: wgpu::PrimitiveState {
-                    topology: wgpu::PrimitiveTopology::TriangleList,
-                    strip_index_format: None,
-                    front_face: wgpu::FrontFace::Cw, // Vertices in cw orientation are facing the camera
-                    cull_mode: Some(wgpu::Face::Back),
-                    polygon_mode: wgpu::PolygonMode::Fill,
-                    unclipped_depth: false,
-                    conservative: false,
-                },
-                depth_stencil: None,
-                multisample: wgpu::MultisampleState {
-                    count: 1, // No multisampling
-                    mask: !0,
-                    alpha_to_coverage_enabled: false,
-                },
-                multiview: None,
-                cache: None,
-            });
-
+        
         // Create vertex buffer from VERTICES slice
         let vertex_buffer = device.create_buffer_init(
             &wgpu::util::BufferInitDescriptor {
@@ -222,34 +174,122 @@ impl<S: Sprite> State<S> {
                             binding: 1,
                             resource: wgpu::BindingResource::Sampler(&texture.sampler),
                         }
-                    ],
-                    label: Some("diffuse_bind_group"),
-                }
-            );
-            texture_bind_groups.push(bind_group);
-        });
-
-        // Create an instance for each sprite
-        let mut instances = Vec::new();
-        for sprite in &sprites {
-            instances.push(instance::Instance {
-                position: cgmath::Vector3 { x: sprite.position().0, y: sprite.position().1, z: 0.0 },
-                rotation: cgmath::Quaternion::from_axis_angle(cgmath::Vector3::unit_z(), cgmath::Deg(0.0)),
-                scale: cgmath::Vector2 { x: sprite.width(), y: sprite.height() },
+                        ],
+                        label: Some("diffuse_bind_group"),
+                    }
+                );
+                texture_bind_groups.push(bind_group);
             });
-        }
 
-        // Turn each Instance into InstanceRaw and collect into a Vec
-        let instance_data = instances.iter().map(instance::Instance::to_raw).collect::<Vec<_>>();
+            // Get data for each instance
+            let mut instance_data = Vec::new();
+            for sprite in &sprites {
+                instance_data.push(sprite.get_instance());
+            }
+            
         // Create instance buffer that contains the instance data
         let instance_buffer = device.create_buffer_init(
             &wgpu::util::BufferInitDescriptor {
                 label: Some("Instance Buffer"),
                 contents: bytemuck::cast_slice(&instance_data),
                 // Use this buffer in the vertex shader
-                usage: wgpu::BufferUsages::VERTEX,
+                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
             }
         );
+        
+        // Create a camera buffer to hold the camera matrix
+        let camera_buffer = device.create_buffer_init(
+            &wgpu::util::BufferInitDescriptor {
+                label: Some("Camera Buffer"),
+                contents: bytemuck::cast_slice(&camera.get_matrix()),
+                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            }
+        );
+        // Create a bind group layout to describe the shader bindings for the camera
+        let camera_bind_group_layout = device.create_bind_group_layout(
+            &wgpu::BindGroupLayoutDescriptor {
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::VERTEX,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    }
+                ],
+                label: Some("camera_bind_group_layout"),
+            }
+        );
+        // Bind the camera buffer to the camera bind group
+        let camera_bind_group = device.create_bind_group(
+            &wgpu::BindGroupDescriptor {
+                layout: &camera_bind_group_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: camera_buffer.as_entire_binding(),
+                    }
+                ],
+                label: Some("camera_bind_group"),
+            }
+        );
+
+        // Create a render pipeline layout
+        let render_pipeline_layout =
+        device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("Render Pipeline Layout"),
+            bind_group_layouts: &[
+                &texture_bind_group_layout,
+                &camera_bind_group_layout,
+                ],
+            push_constant_ranges: &[],
+        });
+        // Create render pipeline to describe the render process
+        let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("Render Pipeline"),
+            layout: Some(&render_pipeline_layout),
+            vertex: wgpu::VertexState{  
+                module: &shader,
+                entry_point: Some("vs_main"), // Use vs_main as the vertex shader
+            buffers: &[
+                // Get a description of the vertex buffer
+                vertex::Vertex::desc(),
+                // Get a description of the instance buffer
+                instance::Instance::desc(),
+                ],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some("fs_main"), // Use fs_main as the fragment shader
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: config.format,
+                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                strip_index_format: None,
+                front_face: wgpu::FrontFace::Cw, // Vertices in cw orientation are facing the camera
+                cull_mode: Some(wgpu::Face::Back),
+                polygon_mode: wgpu::PolygonMode::Fill,
+                unclipped_depth: false,
+                conservative: false,
+            },
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState {
+                count: 1, // No multisampling
+                mask: !0,
+                alpha_to_coverage_enabled: false,
+            },
+            multiview: None,
+            cache: None,
+        });
 
         Ok(Self {
             last_instant,
@@ -259,13 +299,16 @@ impl<S: Sprite> State<S> {
             config,
             is_surface_configured: false,
             window,
-            render_pipeline,
             vertex_buffer,
             index_buffer,
             num_indices,
+            texture_bind_groups,
             sprites,
             instance_buffer,
-            texture_bind_groups,
+            camera,
+            camera_buffer,
+            camera_bind_group,
+            render_pipeline,
         })
     }
 
@@ -280,13 +323,54 @@ impl<S: Sprite> State<S> {
     }
 
     pub(crate) fn update(&mut self) {
+        // Get time between frames
         let current_instant = Instant::now();
         let delta_time = current_instant.duration_since(self.last_instant).as_secs_f64();
         self.last_instant = current_instant;
 
+        // Update camera
+        self.camera.update(delta_time);
+
+        // Update camera buffer with new camera matrix
+        self.queue.write_buffer(
+            &self.camera_buffer,
+            0,
+            bytemuck::cast_slice(&self.camera.get_matrix())
+        );
+
+        // Update each sprite
         for sprite in &mut self.sprites {
             sprite.update(delta_time);
         }
+
+        // Update instance buffer with any changed instance data
+        let mut instance_data = Vec::new();
+        let mut change_start: usize = 0;
+        for (i, sprite) in self.sprites.iter_mut().enumerate() {
+            if sprite.changed() {
+                sprite.change_handled();
+                instance_data.push(sprite.get_instance());
+            } else if change_start != i {
+                self.queue.write_buffer(
+                    &self.instance_buffer,
+                    (change_start * std::mem::size_of::<instance::Instance>()) as wgpu::BufferAddress,
+                    bytemuck::cast_slice(&instance_data[change_start..i])
+                );
+                change_start = i + 1;
+                instance_data = Vec::new();
+            } else {
+                change_start += 1;
+            }
+        }
+        // Write any remaining changed instance data to the buffer
+        if change_start != self.sprites.len() {
+            self.queue.write_buffer(
+                &self.instance_buffer,
+                (change_start * std::mem::size_of::<instance::Instance>()) as wgpu::BufferAddress,
+                bytemuck::cast_slice(&instance_data[change_start..])
+            );
+        }
+
     }
     
     pub(crate) fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
@@ -342,6 +426,8 @@ impl<S: Sprite> State<S> {
             render_pass.set_pipeline(&self.render_pipeline);
             // Use the bind group created earlier for the texture
             render_pass.set_bind_group(0, &self.texture_bind_groups[0], &[]);
+            // Use the bind group created earlier for the camera
+            render_pass.set_bind_group(1, &self.camera_bind_group, &[]);
             // Create a vertex buffer at slot 0 using all (..) of self.vertex_buffer
             render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
             render_pass.set_vertex_buffer(1, self.instance_buffer.slice(..));

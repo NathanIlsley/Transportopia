@@ -1769,6 +1769,7 @@ name = "transportopia"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "cgmath",
  "rendering",
  "winit",
 ]
