@@ -6,8 +6,10 @@ use crate::texture;
 
 use std::sync::Arc;
 use winit::window::Window;
+use winit::keyboard::KeyCode;
 use wgpu::util::DeviceExt;
 use std::time::Instant;
+use std::collections::HashMap;
 
 const VERTICES: &[vertex::Vertex] = &[
     vertex::Vertex { position: [-0.5, -0.5, 0.0], tex_coords: [0.0, 1.0], },
@@ -24,6 +26,8 @@ const INDICES: &[u16] = &[
 // This will store the state of our game
 pub(crate) struct State<C: camera::Camera, S: sprite::Sprite> {
     last_instant: Instant,
+    sprite_key_interests: HashMap<KeyCode, Vec<usize>>,
+    camera_key_interests: Vec<KeyCode>,
     surface: wgpu::Surface<'static>,
     device: wgpu::Device,
     queue: wgpu::Queue,
@@ -46,6 +50,15 @@ impl<C: camera::Camera, S: sprite::Sprite> State<C, S> {
     pub(crate) async fn new(window: Arc<Window>, camera: C, sprites: Vec<S>, textures: &[&[u8]]) -> anyhow::Result<State<C, S>> {
         let last_instant = Instant::now();
         
+        let mut sprite_key_interests: HashMap<KeyCode, Vec<usize>> = HashMap::new();
+        for (i, sprite) in sprites.iter().enumerate() {
+            for key in sprite.interested_keys() {
+                sprite_key_interests.entry(key).or_insert_with(Vec::new).push(i);
+            }
+        }
+
+        let camera_key_interests: Vec<KeyCode> = camera.interested_keys();
+
         // Get size of window
         let size = window.inner_size();
 
@@ -293,6 +306,8 @@ impl<C: camera::Camera, S: sprite::Sprite> State<C, S> {
 
         Ok(Self {
             last_instant,
+            sprite_key_interests,
+            camera_key_interests,
             surface,
             device,
             queue,
@@ -371,6 +386,19 @@ impl<C: camera::Camera, S: sprite::Sprite> State<C, S> {
             );
         }
 
+    }
+
+    pub(crate) fn handle_key(&mut self, key: winit::keyboard::KeyCode, pressed: bool) {
+        // Update each sprite that is interested in this key event
+        if let Some(sprite_indices) = self.sprite_key_interests.get(&key) {
+            for &i in sprite_indices {
+                self.sprites[i].key_event(key, pressed);
+            }
+        }
+        // Update camera if it is interested in this key event
+        if self.camera.interested_keys().contains(&key) {
+            self.camera.key_event(key, pressed);
+        }
     }
     
     pub(crate) fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
