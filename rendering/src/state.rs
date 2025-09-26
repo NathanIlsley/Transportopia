@@ -3,6 +3,7 @@ use crate::sprite;
 use crate::instance;
 use crate::vertex;
 use crate::texture;
+use crate::system;
 
 use std::sync::Arc;
 use winit::window::Window;
@@ -27,13 +28,13 @@ const INDICES: &[u16] = &[
 pub(crate) struct State<C: camera::Camera, S: sprite::Sprite> {
     last_instant: Instant,
     sprite_key_interests: HashMap<KeyCode, Vec<usize>>,
-    camera_key_interests: Vec<KeyCode>,
-    surface: wgpu::Surface<'static>,
-    device: wgpu::Device,
-    queue: wgpu::Queue,
-    config: wgpu::SurfaceConfiguration,
-    is_surface_configured: bool,
-    pub(crate) window: Arc<Window>,
+    system: system::System,
+    // surface: wgpu::Surface<'static>,
+    // device: wgpu::Device,
+    // queue: wgpu::Queue,
+    // config: wgpu::SurfaceConfiguration,
+    // is_surface_configured: bool,
+    // pub(crate) window: Arc<Window>,
     vertex_buffer: wgpu::Buffer,
     index_buffer: wgpu::Buffer,
     num_indices: u32,
@@ -47,104 +48,29 @@ pub(crate) struct State<C: camera::Camera, S: sprite::Sprite> {
 }
 
 impl<C: camera::Camera, S: sprite::Sprite> State<C, S> {
-    pub(crate) async fn new(window: Arc<Window>, camera: C, sprites: Vec<S>, textures: &[&[u8]]) -> anyhow::Result<State<C, S>> {
+    pub(crate) async fn new(window: Arc<Window>, camera: C, sprites: Vec<S>, mut textures: Vec<texture::Texture>) -> anyhow::Result<State<C, S>> {
+        // Record the time at which the last frame was drawn
         let last_instant = Instant::now();
         
+        // Create a map of keys to the indices of sprites that are interested in those keys
         let mut sprite_key_interests: HashMap<KeyCode, Vec<usize>> = HashMap::new();
         for (i, sprite) in sprites.iter().enumerate() {
             for key in sprite.interested_keys() {
                 sprite_key_interests.entry(key).or_insert_with(Vec::new).push(i);
             }
         }
-
-        let camera_key_interests: Vec<KeyCode> = camera.interested_keys();
-
-        // Get size of window
-        let size = window.inner_size();
-
-        // Create wgpu instance used to create adapter and surface
-        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
-            ..Default::default()
-        });
-
-        // Create surface to draw to using the window Arc pointer, allowing wgpu to talk to winit
-        let surface = instance.create_surface(window.clone()).unwrap();
-
-        // Create adapter to interface with GPU hardware
-        let adapter = instance
-            .request_adapter(&wgpu::RequestAdapterOptions {
-                power_preference: wgpu::PowerPreference::default(),
-                compatible_surface: Some(&surface),
-                force_fallback_adapter: false,
-            })
-            .await?;
-
-        // Create device to use GPU resources and queue to submit commands to GPU
-        let (device, queue) = adapter
-            .request_device(&wgpu::DeviceDescriptor {
-                label: None,
-                required_features: wgpu::Features::empty(),
-                required_limits: wgpu::Limits::default(),
-                memory_hints: Default::default(),
-                trace: wgpu::Trace::Off,
-            })
-            .await?;
-
-        // Get the capabilities of the surface
-        let surface_caps = surface.get_capabilities(&adapter);
-        // Loop through the available formats for the surface and find one that is sRGB
-        let surface_format = surface_caps.formats.iter()
-            .find(|f| f.is_srgb())
-            .copied()
-            .unwrap_or(surface_caps.formats[0]);
-        // Create surface configuration using the surface format and size of window as well as
-        // Fifo present mode which is the only one that is guaranteed to be supported (also allows v-sync)
-        let config = wgpu::SurfaceConfiguration {
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-            format: surface_format,
-            width: size.width,
-            height: size.height,
-            present_mode: wgpu::PresentMode::Fifo,
-            alpha_mode: surface_caps.alpha_modes[0],
-            view_formats: vec![],
-            desired_maximum_frame_latency: 2,
-        };
+        
+        // Create the system struct to handle wgpu stuff
+        let system = system::System::new(window).await?;
         
         // Create a bind group layout to describe the shader bindings for textures
-        let texture_bind_group_layout =
-        device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            entries: &[
-                // Create a binding at 0 for the texture visible to the fragment shader
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Texture {
-                        multisampled: false,
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                    },
-                    count: None,
-                },
-                // Create a binding at 1 for the sampler visible to the fragment shader
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    // This should match the filterable field of the
-                    // corresponding Texture entry above.
-                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                    count: None,
-                },
-                ],
-                label: Some("texture_bind_group_layout"),
-            }
-        );
+        let texture_bind_group_layout = texture::Texture::bind_group_layout(&system.device);
 
         // Include the shader code
-        let shader = device.create_shader_module(wgpu::include_wgsl!("shader.wgsl"));
-        
+        let shader = system.device.create_shader_module(wgpu::include_wgsl!("shader.wgsl"));
         
         // Create vertex buffer from VERTICES slice
-        let vertex_buffer = device.create_buffer_init(
+        let vertex_buffer = system.device.create_buffer_init(
             &wgpu::util::BufferInitDescriptor {
                 label: Some("Vertex Buffer"),
                 contents: bytemuck::cast_slice(VERTICES),
@@ -153,7 +79,7 @@ impl<C: camera::Camera, S: sprite::Sprite> State<C, S> {
         );
 
         // Create index buffer from INDICES slice
-        let index_buffer = device.create_buffer_init(
+        let index_buffer = system.device.create_buffer_init(
             &wgpu::util::BufferInitDescriptor {
                 label: Some("Index Buffer"),
                 contents: bytemuck::cast_slice(INDICES),
@@ -166,42 +92,19 @@ impl<C: camera::Camera, S: sprite::Sprite> State<C, S> {
         
         // Create a bind group for each texture and sampler
         let mut texture_bind_groups = Vec::new();
-        textures.iter().for_each(|texture| {
-            let texture = texture::Texture::from_bytes(
-                &device,
-                &queue,
-                texture,
-                "diffuse_texture",
-            ).unwrap();
-            let bind_group = device.create_bind_group(
-                &wgpu::BindGroupDescriptor {
-                    layout: &texture_bind_group_layout,
-                    entries: &[
-                        // Attach the diffuse_texture_view to binding 0 of the shader
-                        wgpu::BindGroupEntry {
-                            binding: 0,
-                            resource: wgpu::BindingResource::TextureView(&texture.view),
-                        },
-                        // Attach the diffuse_sampler to binding 1 of the shader
-                        wgpu::BindGroupEntry {
-                            binding: 1,
-                            resource: wgpu::BindingResource::Sampler(&texture.sampler),
-                        }
-                        ],
-                        label: Some("diffuse_bind_group"),
-                    }
-                );
-                texture_bind_groups.push(bind_group);
-            });
+        textures.iter_mut().for_each(|texture| {
+            texture.init(&system.device, &system.queue, &texture_bind_group_layout);
+            texture_bind_groups.push(texture.bind_group.take().unwrap());
+        });
 
-            // Get data for each instance
-            let mut instance_data = Vec::new();
-            for sprite in &sprites {
-                instance_data.push(sprite.get_instance());
-            }
+        // Get data for each instance
+        let mut instance_data = Vec::new();
+        for sprite in &sprites {
+            instance_data.push(sprite.get_instance());
+        }
             
         // Create instance buffer that contains the instance data
-        let instance_buffer = device.create_buffer_init(
+        let instance_buffer = system.device.create_buffer_init(
             &wgpu::util::BufferInitDescriptor {
                 label: Some("Instance Buffer"),
                 contents: bytemuck::cast_slice(&instance_data),
@@ -211,7 +114,7 @@ impl<C: camera::Camera, S: sprite::Sprite> State<C, S> {
         );
         
         // Create a camera buffer to hold the camera matrix
-        let camera_buffer = device.create_buffer_init(
+        let camera_buffer = system.device.create_buffer_init(
             &wgpu::util::BufferInitDescriptor {
                 label: Some("Camera Buffer"),
                 contents: bytemuck::cast_slice(&camera.get_matrix()),
@@ -219,7 +122,7 @@ impl<C: camera::Camera, S: sprite::Sprite> State<C, S> {
             }
         );
         // Create a bind group layout to describe the shader bindings for the camera
-        let camera_bind_group_layout = device.create_bind_group_layout(
+        let camera_bind_group_layout = system.device.create_bind_group_layout(
             &wgpu::BindGroupLayoutDescriptor {
                 entries: &[
                     wgpu::BindGroupLayoutEntry {
@@ -237,7 +140,7 @@ impl<C: camera::Camera, S: sprite::Sprite> State<C, S> {
             }
         );
         // Bind the camera buffer to the camera bind group
-        let camera_bind_group = device.create_bind_group(
+        let camera_bind_group = system.device.create_bind_group(
             &wgpu::BindGroupDescriptor {
                 layout: &camera_bind_group_layout,
                 entries: &[
@@ -252,7 +155,7 @@ impl<C: camera::Camera, S: sprite::Sprite> State<C, S> {
 
         // Create a render pipeline layout
         let render_pipeline_layout =
-        device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        system.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("Render Pipeline Layout"),
             bind_group_layouts: &[
                 &texture_bind_group_layout,
@@ -261,7 +164,7 @@ impl<C: camera::Camera, S: sprite::Sprite> State<C, S> {
             push_constant_ranges: &[],
         });
         // Create render pipeline to describe the render process
-        let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        let render_pipeline = system.device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("Render Pipeline"),
             layout: Some(&render_pipeline_layout),
             vertex: wgpu::VertexState{  
@@ -279,7 +182,7 @@ impl<C: camera::Camera, S: sprite::Sprite> State<C, S> {
                 module: &shader,
                 entry_point: Some("fs_main"), // Use fs_main as the fragment shader
                 targets: &[Some(wgpu::ColorTargetState {
-                    format: config.format,
+                    format: system.config.format,
                     blend: Some(wgpu::BlendState::ALPHA_BLENDING),
                     write_mask: wgpu::ColorWrites::ALL,
                 })],
@@ -307,13 +210,7 @@ impl<C: camera::Camera, S: sprite::Sprite> State<C, S> {
         Ok(Self {
             last_instant,
             sprite_key_interests,
-            camera_key_interests,
-            surface,
-            device,
-            queue,
-            config,
-            is_surface_configured: false,
-            window,
+            system,
             vertex_buffer,
             index_buffer,
             num_indices,
@@ -330,12 +227,14 @@ impl<C: camera::Camera, S: sprite::Sprite> State<C, S> {
     pub(crate) fn resize(&mut self, width: u32, height: u32) {
         // Update size of window and configure surface
         if width > 0 && height > 0 {
-            self.config.width = width;
-            self.config.height = height;
-            self.surface.configure(&self.device, &self.config);
-            self.is_surface_configured = true;
+            self.system.config.width = width;
+            self.system.config.height = height;
+            self.system.surface.configure(&self.system.device, &self.system.config);
+            self.system.is_surface_configured = true;
         }
     }
+
+    pub(crate) fn get_window_size(&self) -> winit::dpi::PhysicalSize<u32> {self.system.size}
 
     pub(crate) fn update(&mut self) {
         // Get time between frames
@@ -347,7 +246,7 @@ impl<C: camera::Camera, S: sprite::Sprite> State<C, S> {
         self.camera.update(delta_time);
 
         // Update camera buffer with new camera matrix
-        self.queue.write_buffer(
+        self.system.queue.write_buffer(
             &self.camera_buffer,
             0,
             bytemuck::cast_slice(&self.camera.get_matrix())
@@ -362,11 +261,11 @@ impl<C: camera::Camera, S: sprite::Sprite> State<C, S> {
         let mut instance_data = Vec::new();
         let mut change_start: usize = 0;
         for (i, sprite) in self.sprites.iter_mut().enumerate() {
-            if sprite.changed() {
-                sprite.change_handled();
+            if sprite.transform_mut().changed() {
+                sprite.transform_mut().change_handled();
                 instance_data.push(sprite.get_instance());
             } else if change_start != i {
-                self.queue.write_buffer(
+                self.system.queue.write_buffer(
                     &self.instance_buffer,
                     (change_start * std::mem::size_of::<instance::Instance>()) as wgpu::BufferAddress,
                     bytemuck::cast_slice(&instance_data[change_start..i])
@@ -379,7 +278,7 @@ impl<C: camera::Camera, S: sprite::Sprite> State<C, S> {
         }
         // Write any remaining changed instance data to the buffer
         if change_start != self.sprites.len() {
-            self.queue.write_buffer(
+            self.system.queue.write_buffer(
                 &self.instance_buffer,
                 (change_start * std::mem::size_of::<instance::Instance>()) as wgpu::BufferAddress,
                 bytemuck::cast_slice(&instance_data[change_start..])
@@ -403,22 +302,22 @@ impl<C: camera::Camera, S: sprite::Sprite> State<C, S> {
     
     pub(crate) fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
         // Request winit to redraw the window
-        self.window.request_redraw();
+        self.system.window.request_redraw();
 
         // We can't render unless the surface is configured
-        if !self.is_surface_configured {
+        if !self.system.is_surface_configured {
             return Ok(());
         }
         
         // Get the next texture to be presented by the swapchain
-        let output = self.surface.get_current_texture()?;
+        let output = self.system.surface.get_current_texture()?;
 
         // Create a TextureView type from the Texture type which specifies how the 
         // data in the Texture should be read and used by the GPU (e.g. format, dimension, mipmap levels)
         let view = output.texture.create_view(&wgpu::TextureViewDescriptor::default());
 
         // Create a CommandEncoder which is used to create a CommandBuffer which is then added to the queue
-        let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+        let mut encoder = self.system.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("Render Encoder"),
         });
 
@@ -468,7 +367,7 @@ impl<C: camera::Camera, S: sprite::Sprite> State<C, S> {
 
         // Add the CommandBuffer created by the CommandEncoder onto the queue
         // (Submit will accept anything that implements IntoIter)
-        self.queue.submit(std::iter::once(encoder.finish()));
+        self.system.queue.submit(std::iter::once(encoder.finish()));
         // Display the texture
         output.present();
 

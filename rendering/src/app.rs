@@ -1,4 +1,4 @@
-use crate::{sprite, state, camera};
+use crate::{camera, sprite, state, texture};
 
 use std::sync::Arc;
 use winit::{
@@ -9,23 +9,23 @@ pub(crate) struct App<C: camera::Camera, S: sprite::Sprite> {
     state: Option<state::State<C, S>>,
     camera: Option<C>,
     sprites: Option<Vec<S>>,
-    textures: Vec<&'static [u8]>,
+    textures: Option<Vec<texture::Texture>>,
     key_handler: fn(&ActiveEventLoop, KeyCode, bool),
 }
 
 impl<C: camera::Camera, S: sprite::Sprite> App<C, S> {
-    pub(crate) fn new(camera: C, sprites: Vec<S>, textures: Vec<&'static [u8]>, key_handler: fn(&ActiveEventLoop, KeyCode, bool)) -> Self {        
+    pub(crate) fn new(camera: C, sprites: Vec<S>, textures: Vec<texture::Texture>, key_handler: fn(&ActiveEventLoop, KeyCode, bool)) -> Self {        
         Self {
             state: None,
             camera: Some(camera),
             sprites: Some(sprites),
-            textures,
+            textures: Some(textures),
             key_handler,
         }
     }
 }
 
-impl<C: camera::Camera + Clone + 'static, S: sprite::Sprite + Clone + 'static> ApplicationHandler<state::State<C, S>> for App<C, S> {
+impl<C: camera::Camera + 'static, S: sprite::Sprite + 'static> ApplicationHandler<state::State<C, S>> for App<C, S> {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         // Use default values for window
         #[allow(unused_mut)]
@@ -35,7 +35,7 @@ impl<C: camera::Camera + Clone + 'static, S: sprite::Sprite + Clone + 'static> A
         let window = Arc::new(event_loop.create_window(window_attributes).unwrap());
 
         // Use pollster to wait until the State struct has been created
-        self.state = Some(pollster::block_on(state::State::new(window, self.camera.take().unwrap(), self.sprites.take().unwrap(), self.textures.as_slice())).unwrap());
+        self.state = Some(pollster::block_on(state::State::new(window, self.camera.take().unwrap(), self.sprites.take().unwrap(), self.textures.take().unwrap())).unwrap());
     }
 
     #[allow(unused_mut)]
@@ -67,7 +67,7 @@ impl<C: camera::Camera + Clone + 'static, S: sprite::Sprite + Clone + 'static> A
                     Ok(_) => {}
                     // Reconfigure the surface if it's lost or outdated
                     Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
-                        let size = state.window.inner_size();
+                        let size = state.get_window_size();
                         state.resize(size.width, size.height);
                     }
                     Err(e) => {

@@ -1,8 +1,7 @@
-use rendering::{sprite, camera};
+use rendering::{sprite, camera, texture};
 use winit::event_loop::ActiveEventLoop;
 use winit::keyboard::KeyCode;
 
-#[derive(Clone)]
 struct MainCamera {
     position: cgmath::Vector2<f32>,
 
@@ -72,33 +71,27 @@ impl camera::Camera for MainCamera {
     }
 }
 
-#[derive(Clone)]
 struct Tile {
-    dimensions: cgmath::Vector2<f32>,
-    position: cgmath::Vector2<f32>,
-    changed: bool,
+    transform: rendering::transform::Transform,
+    texture_index: usize,
 }
 
 impl Tile {
-    fn new(dimensions: cgmath::Vector2<f32>, position: cgmath::Vector2<f32>) -> Self {
+    fn new(dimensions: cgmath::Vector2<f32>, position: cgmath::Vector2<f32>, texture_index: usize) -> Self {
         Self { 
-            dimensions,
-            position,
-            changed: false,
+            transform: rendering::transform::Transform::new(dimensions, position),
+            texture_index,
         }
     }
 }
 
 impl sprite::Sprite for Tile {
-    fn dimensions(&self) -> cgmath::Vector2<f32> {self.dimensions}
-    fn position(&self) -> cgmath::Vector2<f32> {self.position}
-    fn changed(&self) -> bool {self.changed}
-    fn interested_keys(&self) -> Vec<KeyCode> {
-        vec![KeyCode::ArrowLeft, KeyCode::ArrowRight, KeyCode::ArrowUp, KeyCode::ArrowDown]
-    }
+    fn transform(&self) -> &rendering::transform::Transform {&self.transform}
+    fn transform_mut(&mut self) -> &mut rendering::transform::Transform {&mut self.transform}
+    fn texture_index(&self) -> usize {self.texture_index}
 
-    fn change_handled(&mut self) {
-        self.changed = false;
+    fn interested_keys(&self) -> Vec<KeyCode> {
+        vec![]
     }
 
     fn key_event(&mut self, key: KeyCode, pressed: bool) {
@@ -122,15 +115,15 @@ fn key_handler(event_loop: &ActiveEventLoop, key: KeyCode, pressed: bool) {
 }
 
 fn main() {
-    let grass_texture: &'static [u8] = include_bytes!("..\\assets\\grass_0.png");
-    let mut sprites = vec![];
+    let grass_texture = texture::Texture::new(include_bytes!("..\\assets\\grass_0.png"), "grass_texture");
+    let mut grass_sprites = vec![];
     for j in -100..101 {
         for i in -100..101 {
-            sprites.push(Tile::new(cgmath::Vector2::new(0.05, 0.05), cgmath::Vector2::new(0.025 * (i + j) as f32, 0.025 * (i - j) as f32)));
+            grass_sprites.push(Tile::new(cgmath::Vector2::new(0.05, 0.05), cgmath::Vector2::new(0.025 * (i + j) as f32, 0.025 * (i - j) as f32), 0));
         }
     }
     let camera = MainCamera::new(cgmath::Vector2::new(0.0, 0.0));
 
-    rendering::run(camera, sprites, vec![grass_texture], key_handler)
+    rendering::run(camera, grass_sprites, vec![grass_texture], key_handler)
         .unwrap_or_else(|_| {println!("Application encountered an error and had to close.")});
 }

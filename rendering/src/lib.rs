@@ -1,15 +1,17 @@
 mod instance;
 mod vertex;
-mod texture;
 mod state;
 mod app;
+mod system;
+pub mod texture;
 pub mod sprite;
 pub mod camera;
+pub mod transform;
 
 use winit::event_loop::{EventLoop, ActiveEventLoop};
 use winit::keyboard::KeyCode;
 
-pub fn run<C: camera::Camera + Clone + 'static, S: sprite::Sprite + Clone + 'static>(camera: C, sprites: Vec<S>, textures: Vec<&'static [u8]>, key_handler: fn(&ActiveEventLoop, KeyCode, bool)) -> anyhow::Result<()> {
+pub fn run<C: camera::Camera + 'static, S: sprite::Sprite + 'static>(camera: C, sprites: Vec<S>, textures: Vec<texture::Texture>, key_handler: fn(&ActiveEventLoop, KeyCode, bool)) -> anyhow::Result<()> {
     // Using env_logger to improve error messages from wgpu
     env_logger::init();
     // Create event loop for winit
