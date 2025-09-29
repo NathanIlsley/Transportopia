@@ -2,10 +2,11 @@ use crate::camera;
 use crate::sprite;
 use crate::instance;
 use crate::vertex;
-use crate::texture;
 use crate::system;
 
 use std::sync::Arc;
+use anyhow::anyhow;
+use wgpu::BindGroup;
 use winit::window::Window;
 use winit::keyboard::KeyCode;
 use wgpu::util::DeviceExt;
@@ -29,26 +30,18 @@ pub(crate) struct State<C: camera::Camera, S: sprite::Sprite> {
     last_instant: Instant,
     sprite_key_interests: HashMap<KeyCode, Vec<usize>>,
     system: system::System,
-    // surface: wgpu::Surface<'static>,
-    // device: wgpu::Device,
-    // queue: wgpu::Queue,
-    // config: wgpu::SurfaceConfiguration,
-    // is_surface_configured: bool,
-    // pub(crate) window: Arc<Window>,
     vertex_buffer: wgpu::Buffer,
     index_buffer: wgpu::Buffer,
     num_indices: u32,
-    texture_bind_groups: Vec<wgpu::BindGroup>,
+    texture_bind_groups: Vec<(wgpu::BindGroup, (usize, usize))>,
     sprites: Vec<S>,
     instance_buffer: wgpu::Buffer,
     camera: C,
-    camera_buffer: wgpu::Buffer,
-    camera_bind_group: wgpu::BindGroup,
     render_pipeline: wgpu::RenderPipeline,
 }
 
-impl<C: camera::Camera, S: sprite::Sprite> State<C, S> {
-    pub(crate) async fn new(window: Arc<Window>, camera: C, sprites: Vec<S>, mut textures: Vec<texture::Texture>) -> anyhow::Result<State<C, S>> {
+impl<C: camera::Camera, S: sprite::Sprite + PartialEq> State<C, S> {
+    pub(crate) async fn new(window: Arc<Window>, mut camera: C, sprites: Vec<S>) -> anyhow::Result<State<C, S>> {
         // Record the time at which the last frame was drawn
         let last_instant = Instant::now();
         
@@ -62,9 +55,6 @@ impl<C: camera::Camera, S: sprite::Sprite> State<C, S> {
         
         // Create the system struct to handle wgpu stuff
         let system = system::System::new(window).await?;
-        
-        // Create a bind group layout to describe the shader bindings for textures
-        let texture_bind_group_layout = texture::Texture::bind_group_layout(&system.device);
 
         // Include the shader code
         let shader = system.device.create_shader_module(wgpu::include_wgsl!("shader.wgsl"));
@@ -90,12 +80,24 @@ impl<C: camera::Camera, S: sprite::Sprite> State<C, S> {
         // Record the number of indices in the index buffer
         let num_indices = INDICES.len() as u32;
         
-        // Create a bind group for each texture and sampler
-        let mut texture_bind_groups = Vec::new();
-        textures.iter_mut().for_each(|texture| {
-            texture.init(&system.device, &system.queue, &texture_bind_group_layout);
-            texture_bind_groups.push(texture.bind_group.take().unwrap());
-        });
+        // Loop through the sprites and work out what indexes of instances correspond to what bind group 
+        let mut texture_bind_groups: Vec<(BindGroup, (usize, usize))> = vec![];
+        if sprites.len() < 1 {
+            return Err(anyhow!("Must have at least one sprite"));
+        }
+        texture_bind_groups.push((sprites[0].texture().get_bind_group(&system), (0, 1)));
+        if sprites.len() != 1 {
+            for (i, s) in sprites[1..].iter().enumerate() {
+                if i != 0 && *s != sprites[i - 1] {
+                    texture_bind_groups.last_mut().unwrap().1.1 = i + 1;
+                    texture_bind_groups.push((s.texture().get_bind_group(&system), (i + 1, i + 2)));
+                }
+            };
+        }
+
+        // println!("{}, {}", &texture_bind_groups[0].1.0, &texture_bind_groups[0].1.1);
+        // println!("{}, {}", &texture_bind_groups[1].1.0, &texture_bind_groups[1].1.1);
+        // println!("{}", &sprites.len());
 
         // Get data for each instance
         let mut instance_data = Vec::new();
@@ -113,53 +115,16 @@ impl<C: camera::Camera, S: sprite::Sprite> State<C, S> {
             }
         );
         
-        // Create a camera buffer to hold the camera matrix
-        let camera_buffer = system.device.create_buffer_init(
-            &wgpu::util::BufferInitDescriptor {
-                label: Some("Camera Buffer"),
-                contents: bytemuck::cast_slice(&camera.get_matrix()),
-                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            }
-        );
-        // Create a bind group layout to describe the shader bindings for the camera
-        let camera_bind_group_layout = system.device.create_bind_group_layout(
-            &wgpu::BindGroupLayoutDescriptor {
-                entries: &[
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: wgpu::ShaderStages::VERTEX,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    }
-                ],
-                label: Some("camera_bind_group_layout"),
-            }
-        );
-        // Bind the camera buffer to the camera bind group
-        let camera_bind_group = system.device.create_bind_group(
-            &wgpu::BindGroupDescriptor {
-                layout: &camera_bind_group_layout,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: camera_buffer.as_entire_binding(),
-                    }
-                ],
-                label: Some("camera_bind_group"),
-            }
-        );
+        // Initialize the camera buffer
+        camera.init_buffer(camera::CameraBuffer::new(&system, &camera));
 
         // Create a render pipeline layout
         let render_pipeline_layout =
         system.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("Render Pipeline Layout"),
             bind_group_layouts: &[
-                &texture_bind_group_layout,
-                &camera_bind_group_layout,
+                &system.texture_bind_group_layout,
+                &camera.buffer().as_ref().unwrap().bind_group_layout,
                 ],
             push_constant_ranges: &[],
         });
@@ -218,8 +183,6 @@ impl<C: camera::Camera, S: sprite::Sprite> State<C, S> {
             sprites,
             instance_buffer,
             camera,
-            camera_buffer,
-            camera_bind_group,
             render_pipeline,
         })
     }
@@ -247,7 +210,7 @@ impl<C: camera::Camera, S: sprite::Sprite> State<C, S> {
 
         // Update camera buffer with new camera matrix
         self.system.queue.write_buffer(
-            &self.camera_buffer,
+            &self.camera.buffer().as_ref().unwrap().buffer,
             0,
             bytemuck::cast_slice(&self.camera.get_matrix())
         );
@@ -351,18 +314,20 @@ impl<C: camera::Camera, S: sprite::Sprite> State<C, S> {
 
             // Use the render pipeline specified earlier
             render_pass.set_pipeline(&self.render_pipeline);
-            // Use the bind group created earlier for the texture
-            render_pass.set_bind_group(0, &self.texture_bind_groups[0], &[]);
             // Use the bind group created earlier for the camera
-            render_pass.set_bind_group(1, &self.camera_bind_group, &[]);
+            render_pass.set_bind_group(1, &self.camera.buffer().as_ref().unwrap().bind_group, &[]);
             // Create a vertex buffer at slot 0 using all (..) of self.vertex_buffer
             render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
             render_pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
             // Create an index buffer using all (..) of self.index_buffer
             render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-
-            // Draw the vertices of the vertex buffer as triangles using the indices in the index buffer
-            render_pass.draw_indexed(0..self.num_indices, 0, 0..self.sprites.len() as u32);
+            
+            for bind_group in &self.texture_bind_groups {
+                // Set the bind group to the next texture bind group
+                render_pass.set_bind_group(0, &bind_group.0, &[]);
+                // Draw the instances with that texture
+                render_pass.draw_indexed(0..self.num_indices, 0, bind_group.1.0 as u32..bind_group.1.1 as u32);
+            }
         }
 
         // Add the CommandBuffer created by the CommandEncoder onto the queue

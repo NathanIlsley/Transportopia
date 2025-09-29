@@ -1,12 +1,17 @@
 use image::GenericImageView;
 
+use crate::system;
+
+#[derive(Clone, Copy)]
 pub struct Texture {
     bytes: &'static [u8],
     label: &'static str,
-    pub(crate) texture: Option<wgpu::Texture>,
-    pub(crate) view: Option<wgpu::TextureView>,
-    pub(crate) sampler: Option<wgpu::Sampler>,
-    pub(crate) bind_group: Option<wgpu::BindGroup>,
+}
+
+impl PartialEq for Texture {
+    fn eq(&self, other: &Self) -> bool {
+        self.bytes == other.bytes && self.label == other.label
+    }
 }
 
 impl Texture {
@@ -14,19 +19,13 @@ impl Texture {
         Self {
             bytes,
             label,
-            texture: None,
-            view: None,
-            sampler: None,
-            bind_group: None,
         }
     }
 
-    pub(crate) fn init(
-        &mut self,
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
-        bind_group_layout: &wgpu::BindGroupLayout,
-    ) {
+    pub(crate) fn get_bind_group(
+        &self,
+        system: &system::System
+    ) -> wgpu::BindGroup {
         // Turns the byte array into an image
         let img = image::load_from_memory(self.bytes).expect("Could not load texture");
         
@@ -46,7 +45,7 @@ impl Texture {
         };
 
         // Create a texture of the right size and format to hold the image
-        let texture = device.create_texture(
+        let texture = system.device.create_texture(
             &wgpu::TextureDescriptor {
                 label: Some(self.label),
                 size,
@@ -72,7 +71,7 @@ impl Texture {
         );
 
         // Copy the pixel data of the image to the texture
-        queue.write_texture(
+        system.queue.write_texture(
             // Tells wgpu where to copy the pixel data
             wgpu::TexelCopyTextureInfo {
                 aspect: wgpu::TextureAspect::All,
@@ -93,12 +92,10 @@ impl Texture {
         
         // Create a TextureView type from the Texture type which specifies how the 
         // data in the Texture should be read and used by the GPU (e.g. format, dimension, mipmap levels)
-        self.view = Some(texture.create_view(&wgpu::TextureViewDescriptor::default()));
-
-        self.texture = Some(texture);
+        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
 
         // Create a sampler to control how the Texture is sampled in the shader
-        self.sampler = Some(device.create_sampler(
+        let sampler = system.device.create_sampler(
             // Address_mode_* describes what happens when the sampler gets a textue coordinate outside of the texture
             // Clamp to edge will return the colour of the nearest pixel on the edge of the texture
             &wgpu::SamplerDescriptor {
@@ -114,53 +111,23 @@ impl Texture {
                 mipmap_filter: wgpu::FilterMode::Nearest,
                 ..Default::default()
             }
-        ));
+        );
         
-        // Create a bind group to hold the actual bindings for the texture and sampler
-        self.bind_group = Some(device.create_bind_group(
+        // Return the bind group to hold the actual bindings for the texture and sampler
+        system.device.create_bind_group(
             &wgpu::BindGroupDescriptor {
-                layout: bind_group_layout,
+                layout: &system.texture_bind_group_layout,
                 entries: &[
                     wgpu::BindGroupEntry {
                         binding: 0,
-                        resource: wgpu::BindingResource::TextureView(self.view.as_ref().unwrap()),
+                        resource: wgpu::BindingResource::TextureView(&view),
                     },
                     wgpu::BindGroupEntry {
                         binding: 1,
-                        resource: wgpu::BindingResource::Sampler(self.sampler.as_ref().unwrap()),
+                        resource: wgpu::BindingResource::Sampler(&sampler),
                     },
                 ],
                 label: Some(&format!("{} bind group", self.label)),
-            }
-        ));
-    }
-        
-    pub(crate) fn bind_group_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
-        // Create a bind group layout to describe the shader bindings for textures
-        device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            entries: &[
-                // Create a binding at 0 for the texture visible to the fragment shader
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Texture {
-                        multisampled: false,
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                    },
-                    count: None,
-                },
-                // Create a binding at 1 for the sampler visible to the fragment shader
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    // This should match the filterable field of the
-                    // corresponding Texture entry above.
-                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                    count: None,
-                },
-                ],
-                label: Some("texture_bind_group_layout"),
             }
         )
     }

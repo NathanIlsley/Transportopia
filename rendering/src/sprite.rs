@@ -2,13 +2,13 @@ use winit::keyboard::KeyCode;
 use cgmath;
 
 use crate::instance;
-use crate::transform;
 use crate::texture;
+use crate::transform;
 
 pub trait Sprite {
     fn transform(&self) -> &transform::Transform;
     fn transform_mut(&mut self) -> &mut transform::Transform;
-    fn texture_index(&self) -> usize;
+    fn texture(&self) -> &texture::Texture;
     fn interested_keys(&self) -> Vec<KeyCode>;
 
     fn get_instance(&self) -> instance::Instance {
@@ -23,9 +23,4 @@ pub trait Sprite {
     fn start(&mut self) {}
     #[allow(unused_variables)]
     fn update(&mut self, delta_time: f64) {}
-}
-
-pub struct SpriteInstance<'a, S: Sprite> {
-    sprite: &'a S,
-    instance: instance::Instance,
 }

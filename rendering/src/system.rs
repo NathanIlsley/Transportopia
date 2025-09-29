@@ -9,6 +9,7 @@ pub(crate) struct System {
     pub(crate) is_surface_configured: bool,
     pub(crate) window: Arc<window::Window>,
     pub(crate) size: winit::dpi::PhysicalSize<u32>,
+    pub(crate) texture_bind_group_layout: wgpu::BindGroupLayout,
 }
 
 impl System {
@@ -64,6 +65,34 @@ impl System {
             desired_maximum_frame_latency: 2,
         };
 
+        // Create a bind group layout to describe the shader bindings for textures
+        let texture_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            entries: &[
+                // Create a binding at 0 for the texture visible to the fragment shader
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        multisampled: false,
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                    },
+                    count: None,
+                },
+                // Create a binding at 1 for the sampler visible to the fragment shader
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    // This should match the filterable field of the
+                    // corresponding Texture entry above.
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
+                ],
+                label: Some("texture_bind_group_layout"),
+            }
+        );
+
         Ok(Self {
             surface,
             device,
@@ -72,6 +101,7 @@ impl System {
             is_surface_configured: false,
             window,
             size,
+            texture_bind_group_layout,
         })
     }
 }

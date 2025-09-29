@@ -1,4 +1,4 @@
-use crate::{camera, sprite, state, texture};
+use crate::{camera, sprite, state};
 
 use std::sync::Arc;
 use winit::{
@@ -9,23 +9,21 @@ pub(crate) struct App<C: camera::Camera, S: sprite::Sprite> {
     state: Option<state::State<C, S>>,
     camera: Option<C>,
     sprites: Option<Vec<S>>,
-    textures: Option<Vec<texture::Texture>>,
     key_handler: fn(&ActiveEventLoop, KeyCode, bool),
 }
 
 impl<C: camera::Camera, S: sprite::Sprite> App<C, S> {
-    pub(crate) fn new(camera: C, sprites: Vec<S>, textures: Vec<texture::Texture>, key_handler: fn(&ActiveEventLoop, KeyCode, bool)) -> Self {        
+    pub(crate) fn new(camera: C, sprites: Vec<S>, key_handler: fn(&ActiveEventLoop, KeyCode, bool)) -> Self {        
         Self {
             state: None,
             camera: Some(camera),
             sprites: Some(sprites),
-            textures: Some(textures),
             key_handler,
         }
     }
 }
 
-impl<C: camera::Camera + 'static, S: sprite::Sprite + 'static> ApplicationHandler<state::State<C, S>> for App<C, S> {
+impl<C: camera::Camera + 'static, S: sprite::Sprite + PartialEq + 'static> ApplicationHandler<state::State<C, S>> for App<C, S> {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         // Use default values for window
         #[allow(unused_mut)]
@@ -35,7 +33,7 @@ impl<C: camera::Camera + 'static, S: sprite::Sprite + 'static> ApplicationHandle
         let window = Arc::new(event_loop.create_window(window_attributes).unwrap());
 
         // Use pollster to wait until the State struct has been created
-        self.state = Some(pollster::block_on(state::State::new(window, self.camera.take().unwrap(), self.sprites.take().unwrap(), self.textures.take().unwrap())).unwrap());
+        self.state = Some(pollster::block_on(state::State::new(window, self.camera.take().unwrap(), self.sprites.take().unwrap())).unwrap());
     }
 
     #[allow(unused_mut)]

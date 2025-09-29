@@ -1,8 +1,9 @@
-use rendering::{sprite, camera, texture};
+use rendering::{sprite, camera, texture, transform};
 use winit::event_loop::ActiveEventLoop;
 use winit::keyboard::KeyCode;
 
 struct MainCamera {
+    buffer: Option<camera::CameraBuffer>,
     position: cgmath::Vector2<f32>,
 
     delta_times: Vec<f64>,
@@ -12,6 +13,7 @@ struct MainCamera {
 impl MainCamera {
     fn new(position: cgmath::Vector2<f32>) -> Self {
         Self {
+            buffer: None,
             position,
             delta_times: vec![],
             movement: cgmath::Vector2::new(0.0, 0.0),
@@ -20,9 +22,14 @@ impl MainCamera {
 }
 
 impl camera::Camera for MainCamera {
+    fn buffer(&self) -> &Option<camera::CameraBuffer> {&self.buffer}
     fn position(&self) -> cgmath::Vector2<f32> {self.position}
     fn interested_keys(&self) -> Vec<KeyCode> {
         vec![KeyCode::ArrowLeft, KeyCode::ArrowRight, KeyCode::ArrowUp, KeyCode::ArrowDown]
+    }
+
+    fn init_buffer(&mut self, buffer: camera::CameraBuffer) {
+        self.buffer = Some(buffer);
     }
 
     fn key_event(&mut self, key: KeyCode, pressed: bool) {
@@ -72,39 +79,45 @@ impl camera::Camera for MainCamera {
 }
 
 struct Tile {
-    transform: rendering::transform::Transform,
-    texture_index: usize,
+    transform: transform::Transform,
+    texture: texture::Texture,
 }
 
 impl Tile {
-    fn new(dimensions: cgmath::Vector2<f32>, position: cgmath::Vector2<f32>, texture_index: usize) -> Self {
+    fn new(dimensions: cgmath::Vector2<f32>, position: cgmath::Vector2<f32>, texture: texture::Texture) -> Self {
         Self { 
             transform: rendering::transform::Transform::new(dimensions, position),
-            texture_index,
+            texture,
         }
+    }
+}
+
+impl PartialEq for Tile {
+    fn eq(&self, other: &Self) -> bool {
+        self.texture == other.texture
     }
 }
 
 impl sprite::Sprite for Tile {
     fn transform(&self) -> &rendering::transform::Transform {&self.transform}
     fn transform_mut(&mut self) -> &mut rendering::transform::Transform {&mut self.transform}
-    fn texture_index(&self) -> usize {self.texture_index}
+    fn texture(&self) -> &texture::Texture {&self.texture}
 
     fn interested_keys(&self) -> Vec<KeyCode> {
         vec![]
     }
 
-    fn key_event(&mut self, key: KeyCode, pressed: bool) {
+    // fn key_event(&mut self, key: KeyCode, pressed: bool) {
 
-    }
+    // }
 
-    fn start(&mut self) {
+    // fn start(&mut self) {
 
-    }
+    // }
 
-    fn update(&mut self, delta_time: f64) {
+    // fn update(&mut self, delta_time: f64) {
 
-    }
+    // }
 }
 
 fn key_handler(event_loop: &ActiveEventLoop, key: KeyCode, pressed: bool) {
@@ -116,14 +129,17 @@ fn key_handler(event_loop: &ActiveEventLoop, key: KeyCode, pressed: bool) {
 
 fn main() {
     let grass_texture = texture::Texture::new(include_bytes!("..\\assets\\grass_0.png"), "grass_texture");
-    let mut grass_sprites = vec![];
-    for j in -100..101 {
-        for i in -100..101 {
-            grass_sprites.push(Tile::new(cgmath::Vector2::new(0.05, 0.05), cgmath::Vector2::new(0.025 * (i + j) as f32, 0.025 * (i - j) as f32), 0));
+    let track_texture = texture::Texture::new(include_bytes!("..\\assets\\track_straight_0.png"), "track_texture");
+    let mut sprites = vec![];
+    for j in -5..6 {
+        for i in -5..6 {
+            sprites.push(Tile::new(cgmath::Vector2::new(0.2, 0.2), cgmath::Vector2::new(0.1 * (i + j) as f32, 0.1 * (i - j) as f32), grass_texture));
         }
     }
+    sprites.push(Tile::new(cgmath::Vector2::new(0.2, 0.2), cgmath::Vector2::new(0.0, 0.0), track_texture));
+
     let camera = MainCamera::new(cgmath::Vector2::new(0.0, 0.0));
 
-    rendering::run(camera, grass_sprites, vec![grass_texture], key_handler)
+    rendering::run(camera, sprites, key_handler)
         .unwrap_or_else(|_| {println!("Application encountered an error and had to close.")});
 }
