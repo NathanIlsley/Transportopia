@@ -16,6 +16,10 @@ pub trait Sprite {
         instance::Instance::new((cgmath::Matrix4::from_translation(self.transform().position().extend(0.0)) * scale_matrix).into())
     }
 
+    fn has_same_texture<T: Sprite>(&self, other: &T) -> bool {
+        self.texture() == other.texture()
+    }
+
     // fn change_handled(&mut self);
 
     #[allow(unused_variables)]

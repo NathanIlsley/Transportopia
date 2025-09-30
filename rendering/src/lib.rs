@@ -11,7 +11,7 @@ pub mod transform;
 use winit::event_loop::{EventLoop, ActiveEventLoop};
 use winit::keyboard::KeyCode;
 
-pub fn run<C: camera::Camera + 'static, S: sprite::Sprite + PartialEq + 'static>(camera: C, sprites: Vec<S>, key_handler: fn(&ActiveEventLoop, KeyCode, bool)) -> anyhow::Result<()> {
+pub fn run<C: camera::Camera + 'static, S: sprite::Sprite + 'static>(camera: C, sprites: Vec<S>, key_handler: fn(&ActiveEventLoop, KeyCode, bool)) -> anyhow::Result<()> {
     // Using env_logger to improve error messages from wgpu
     env_logger::init();
     // Create event loop for winit

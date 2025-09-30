@@ -1,3 +1,4 @@
+use cgmath::InnerSpace;
 use rendering::{sprite, camera, texture, transform};
 use winit::event_loop::ActiveEventLoop;
 use winit::keyboard::KeyCode;
@@ -16,7 +17,7 @@ impl MainCamera {
             buffer: None,
             position,
             delta_times: vec![],
-            movement: cgmath::Vector2::new(0.0, 0.0),
+            movement: cgmath::Vector2::new(0.5, 0.0),
         }
     }
 }
@@ -25,7 +26,7 @@ impl camera::Camera for MainCamera {
     fn buffer(&self) -> &Option<camera::CameraBuffer> {&self.buffer}
     fn position(&self) -> cgmath::Vector2<f32> {self.position}
     fn interested_keys(&self) -> Vec<KeyCode> {
-        vec![KeyCode::ArrowLeft, KeyCode::ArrowRight, KeyCode::ArrowUp, KeyCode::ArrowDown]
+        vec![]// vec![KeyCode::ArrowLeft, KeyCode::ArrowRight, KeyCode::ArrowUp, KeyCode::ArrowDown]
     }
 
     fn init_buffer(&mut self, buffer: camera::CameraBuffer) {
@@ -67,13 +68,23 @@ impl camera::Camera for MainCamera {
         
     }
 
-    fn update(&mut self, delta_time: f64) {
-        // self.delta_times.push(delta_time);
-        // if self.delta_times.len() > 10 {
-        //     println!("fps: {}", self.delta_times.len() as f64 / self.delta_times.iter().sum::<f64>());
-        //     self.delta_times = vec![];
+    fn update(&mut self, delta_time: f64) {    
+        // if self.delta_times.len() > 3 {
+            //     println!("fps: {:.1}", self.delta_times.len() as f64 / self.delta_times.iter().sum::<f64>());
+            //     self.delta_times = vec![];
+            // }
+        // if 1.0 / delta_time < 50.0 {
+        //     println!("{}", 1.0 / delta_time);
         // }
         
+        // self.position += self.movement * delta_time as f32;
+
+        if self.position.x < -1.0 {
+            self.movement.x = 0.5;
+        } else if self.position.x > 1.0 {
+            self.movement.x = -0.5;
+        }
+
         self.position += self.movement * delta_time as f32;
     }
 }
@@ -92,11 +103,11 @@ impl Tile {
     }
 }
 
-impl PartialEq for Tile {
-    fn eq(&self, other: &Self) -> bool {
-        self.texture == other.texture
-    }
-}
+// impl PartialEq for Tile {
+//     fn eq(&self, other: &Self) -> bool {
+//         self.texture == other.texture
+//     }
+// }
 
 impl sprite::Sprite for Tile {
     fn transform(&self) -> &rendering::transform::Transform {&self.transform}
@@ -131,15 +142,40 @@ fn main() {
     let grass_texture = texture::Texture::new(include_bytes!("..\\assets\\grass_0.png"), "grass_texture");
     let track_texture = texture::Texture::new(include_bytes!("..\\assets\\track_straight_0.png"), "track_texture");
     let mut sprites = vec![];
-    for j in -5..6 {
-        for i in -5..6 {
-            sprites.push(Tile::new(cgmath::Vector2::new(0.2, 0.2), cgmath::Vector2::new(0.1 * (i + j) as f32, 0.1 * (i - j) as f32), grass_texture));
+    let grass_dimensions = 0.04 * cgmath::Vector2::<f32>::new(240.0, 120.0).normalize();
+    for j in -10..11 {
+        for i in -10..11 {
+            // if (j + i) % 50 != 0 {
+            //     continue;
+            // }
+            sprites.push(Tile::new(
+                grass_dimensions,
+                cgmath::Vector2::new(grass_dimensions.x / 2.0 * (i + j) as f32, grass_dimensions.y / 2.0 * (i - j) as f32),
+                grass_texture
+            ));
         }
     }
-    sprites.push(Tile::new(cgmath::Vector2::new(0.2, 0.2), cgmath::Vector2::new(0.0, 0.0), track_texture));
-
+    // let track_dimensions = 0.04 * cgmath::Vector2::<f32>::new(240.0, 240.0).normalize();
+    // for j in -100..101 {
+    //     for i in -100..101 {
+    //         // if (j + i) % 50 != 0 {
+    //         //     continue;
+    //         // }
+    //         sprites.push(Tile::new(
+    //             track_dimensions,
+    //             cgmath::Vector2::new(grass_dimensions.x / 2.0 * (i + j) as f32, grass_dimensions.y / 2.0 * (i - j) as f32),
+    //             track_texture
+    //         ));
+    //     }
+    // }
+    // sprites.push(Tile::new(
+        //     cgmath::Vector2::new(0.2, 0.2),
+        //     cgmath::Vector2::new(0.0, 0.0),
+        //     track_texture
+        // ));
+        
     let camera = MainCamera::new(cgmath::Vector2::new(0.0, 0.0));
 
     rendering::run(camera, sprites, key_handler)
-        .unwrap_or_else(|_| {println!("Application encountered an error and had to close.")});
+        .expect("Application encountered an error and had to close.");
 }

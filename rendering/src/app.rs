@@ -23,7 +23,7 @@ impl<C: camera::Camera, S: sprite::Sprite> App<C, S> {
     }
 }
 
-impl<C: camera::Camera + 'static, S: sprite::Sprite + PartialEq + 'static> ApplicationHandler<state::State<C, S>> for App<C, S> {
+impl<C: camera::Camera + 'static, S: sprite::Sprite + 'static> ApplicationHandler<state::State<C, S>> for App<C, S> {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         // Use default values for window
         #[allow(unused_mut)]
@@ -84,8 +84,8 @@ impl<C: camera::Camera + 'static, S: sprite::Sprite + PartialEq + 'static> Appli
                     },
                 ..
             } => {
-                state.handle_key(code, key_state.is_pressed());
-                (self.key_handler)(event_loop, code, key_state.is_pressed());
+                // state.handle_key(code, key_state.is_pressed());
+                // (self.key_handler)(event_loop, code, key_state.is_pressed());
             },
             _ => {}
         }

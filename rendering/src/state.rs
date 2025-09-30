@@ -40,7 +40,7 @@ pub(crate) struct State<C: camera::Camera, S: sprite::Sprite> {
     render_pipeline: wgpu::RenderPipeline,
 }
 
-impl<C: camera::Camera, S: sprite::Sprite + PartialEq> State<C, S> {
+impl<C: camera::Camera, S: sprite::Sprite> State<C, S> {
     pub(crate) async fn new(window: Arc<Window>, mut camera: C, sprites: Vec<S>) -> anyhow::Result<State<C, S>> {
         // Record the time at which the last frame was drawn
         let last_instant = Instant::now();
@@ -88,16 +88,18 @@ impl<C: camera::Camera, S: sprite::Sprite + PartialEq> State<C, S> {
         texture_bind_groups.push((sprites[0].texture().get_bind_group(&system), (0, 1)));
         if sprites.len() != 1 {
             for (i, s) in sprites[1..].iter().enumerate() {
-                if i != 0 && *s != sprites[i - 1] {
+                if !s.has_same_texture(&sprites[i]) {
                     texture_bind_groups.last_mut().unwrap().1.1 = i + 1;
                     texture_bind_groups.push((s.texture().get_bind_group(&system), (i + 1, i + 2)));
                 }
             };
+            texture_bind_groups.last_mut().unwrap().1.1 = sprites.len();
         }
 
-        // println!("{}, {}", &texture_bind_groups[0].1.0, &texture_bind_groups[0].1.1);
+        println!("{}, {}", &texture_bind_groups[0].1.0, &texture_bind_groups[0].1.1);
         // println!("{}, {}", &texture_bind_groups[1].1.0, &texture_bind_groups[1].1.1);
-        // println!("{}", &sprites.len());
+        println!("{}", texture_bind_groups.len());
+        println!("{}", &sprites.len());
 
         // Get data for each instance
         let mut instance_data = Vec::new();
@@ -195,6 +197,8 @@ impl<C: camera::Camera, S: sprite::Sprite + PartialEq> State<C, S> {
             self.system.surface.configure(&self.system.device, &self.system.config);
             self.system.is_surface_configured = true;
         }
+
+        println!("Surface Reconfigured");
     }
 
     pub(crate) fn get_window_size(&self) -> winit::dpi::PhysicalSize<u32> {self.system.size}
@@ -321,6 +325,8 @@ impl<C: camera::Camera, S: sprite::Sprite + PartialEq> State<C, S> {
             render_pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
             // Create an index buffer using all (..) of self.index_buffer
             render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+
+            // let mut culled_bind_grou
             
             for bind_group in &self.texture_bind_groups {
                 // Set the bind group to the next texture bind group

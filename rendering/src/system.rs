@@ -22,7 +22,7 @@ impl System {
         // Create surface to draw to using the window Arc pointer, allowing wgpu to talk to winit
         let surface = instance.create_surface(window.clone()).unwrap();
 
-        // Request an adapter which can interface with the surface and GPU// Create adapter to interface with GPU hardware
+        // Create adapter to interface with GPU hardware
         let adapter = instance
             .request_adapter(&wgpu::RequestAdapterOptions {
                 power_preference: wgpu::PowerPreference::default(),
@@ -62,7 +62,7 @@ impl System {
             present_mode: wgpu::PresentMode::Fifo,
             alpha_mode: surface_caps.alpha_modes[0],
             view_formats: vec![],
-            desired_maximum_frame_latency: 2,
+            desired_maximum_frame_latency: 5,
         };
 
         // Create a bind group layout to describe the shader bindings for textures

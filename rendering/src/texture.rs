@@ -22,6 +22,10 @@ impl Texture {
         }
     }
 
+    // pub fn dimensions(&self) -> cgmath::Vector2<f32> {
+
+    // }
+
     pub(crate) fn get_bind_group(
         &self,
         system: &system::System
