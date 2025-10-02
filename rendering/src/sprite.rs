@@ -20,8 +20,6 @@ pub trait Sprite {
         self.texture() == other.texture()
     }
 
-    // fn change_handled(&mut self);
-
     #[allow(unused_variables)]
     fn key_event(&mut self, key: KeyCode, pressed: bool) {}
     fn start(&mut self) {}

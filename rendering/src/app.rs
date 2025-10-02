@@ -84,8 +84,8 @@ impl<C: camera::Camera + 'static, S: sprite::Sprite + 'static> ApplicationHandle
                     },
                 ..
             } => {
-                // state.handle_key(code, key_state.is_pressed());
-                // (self.key_handler)(event_loop, code, key_state.is_pressed());
+                state.handle_key(code, key_state.is_pressed());
+                (self.key_handler)(event_loop, code, key_state.is_pressed());
             },
             _ => {}
         }

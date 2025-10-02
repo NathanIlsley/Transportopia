@@ -17,7 +17,7 @@ impl MainCamera {
             buffer: None,
             position,
             delta_times: vec![],
-            movement: cgmath::Vector2::new(0.5, 0.0),
+            movement: cgmath::Vector2::new(0.0, 0.0),
         }
     }
 }
@@ -26,7 +26,7 @@ impl camera::Camera for MainCamera {
     fn buffer(&self) -> &Option<camera::CameraBuffer> {&self.buffer}
     fn position(&self) -> cgmath::Vector2<f32> {self.position}
     fn interested_keys(&self) -> Vec<KeyCode> {
-        vec![]// vec![KeyCode::ArrowLeft, KeyCode::ArrowRight, KeyCode::ArrowUp, KeyCode::ArrowDown]
+        vec![KeyCode::ArrowLeft, KeyCode::ArrowRight, KeyCode::ArrowUp, KeyCode::ArrowDown]
     }
 
     fn init_buffer(&mut self, buffer: camera::CameraBuffer) {
@@ -79,11 +79,11 @@ impl camera::Camera for MainCamera {
         
         // self.position += self.movement * delta_time as f32;
 
-        if self.position.x < -1.0 {
-            self.movement.x = 0.5;
-        } else if self.position.x > 1.0 {
-            self.movement.x = -0.5;
-        }
+        // if self.position.x < -1.0 {
+        //     self.movement.x = 0.5;
+        // } else if self.position.x > 1.0 {
+        //     self.movement.x = -0.5;
+        // }
 
         self.position += self.movement * delta_time as f32;
     }
@@ -142,25 +142,19 @@ fn main() {
     let grass_texture = texture::Texture::new(include_bytes!("..\\assets\\grass_0.png"), "grass_texture");
     let track_texture = texture::Texture::new(include_bytes!("..\\assets\\track_straight_0.png"), "track_texture");
     let mut sprites = vec![];
-    let grass_dimensions = 0.04 * cgmath::Vector2::<f32>::new(240.0, 120.0).normalize();
-    for j in -10..11 {
-        for i in -10..11 {
-            // if (j + i) % 50 != 0 {
-            //     continue;
-            // }
-            sprites.push(Tile::new(
-                grass_dimensions,
-                cgmath::Vector2::new(grass_dimensions.x / 2.0 * (i + j) as f32, grass_dimensions.y / 2.0 * (i - j) as f32),
-                grass_texture
-            ));
-        }
-    }
+    // let grass_dimensions = 0.04 * cgmath::Vector2::<f32>::new(240.0, 120.0).normalize();
+    // for j in -100..101 {
+    //     for i in -100..101 {
+    //         sprites.push(Tile::new(
+    //             grass_dimensions,
+    //             cgmath::Vector2::new(grass_dimensions.x / 2.0 * (i + j) as f32, grass_dimensions.y / 2.0 * (i - j) as f32),
+    //             grass_texture
+    //         ));
+    //     }
+    // }
     // let track_dimensions = 0.04 * cgmath::Vector2::<f32>::new(240.0, 240.0).normalize();
     // for j in -100..101 {
     //     for i in -100..101 {
-    //         // if (j + i) % 50 != 0 {
-    //         //     continue;
-    //         // }
     //         sprites.push(Tile::new(
     //             track_dimensions,
     //             cgmath::Vector2::new(grass_dimensions.x / 2.0 * (i + j) as f32, grass_dimensions.y / 2.0 * (i - j) as f32),
@@ -168,12 +162,29 @@ fn main() {
     //         ));
     //     }
     // }
-    // sprites.push(Tile::new(
-        //     cgmath::Vector2::new(0.2, 0.2),
-        //     cgmath::Vector2::new(0.0, 0.0),
-        //     track_texture
-        // ));
-        
+    let track_dimensions = 1.265 * cgmath::Vector2::<f32>::new(240.0, 240.0).normalize();
+    let grass_dimensions = 1.0 * cgmath::Vector2::<f32>::new(240.0, 120.0).normalize();
+    sprites.push(Tile::new(
+        grass_dimensions,
+        cgmath::Vector2::new(0.0, 0.0),
+        grass_texture
+    ));
+    sprites.push(Tile::new(
+        track_dimensions,
+        cgmath::Vector2::new(0.0, 0.0),
+        track_texture
+    ));
+    sprites.push(Tile::new(
+        grass_dimensions,
+        cgmath::Vector2::new(grass_dimensions.x / 2.0, -grass_dimensions.y / 2.0),
+        grass_texture
+    ));
+    sprites.push(Tile::new(
+        track_dimensions,
+        cgmath::Vector2::new(grass_dimensions.x / 2.0, -grass_dimensions.y / 2.0),
+        track_texture
+    ));
+    
     let camera = MainCamera::new(cgmath::Vector2::new(0.0, 0.0));
 
     rendering::run(camera, sprites, key_handler)

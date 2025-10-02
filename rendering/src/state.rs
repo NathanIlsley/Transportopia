@@ -96,11 +96,6 @@ impl<C: camera::Camera, S: sprite::Sprite> State<C, S> {
             texture_bind_groups.last_mut().unwrap().1.1 = sprites.len();
         }
 
-        println!("{}, {}", &texture_bind_groups[0].1.0, &texture_bind_groups[0].1.1);
-        // println!("{}, {}", &texture_bind_groups[1].1.0, &texture_bind_groups[1].1.1);
-        println!("{}", texture_bind_groups.len());
-        println!("{}", &sprites.len());
-
         // Get data for each instance
         let mut instance_data = Vec::new();
         for sprite in &sprites {
@@ -198,7 +193,10 @@ impl<C: camera::Camera, S: sprite::Sprite> State<C, S> {
             self.system.is_surface_configured = true;
         }
 
-        println!("Surface Reconfigured");
+        // Correct the shapes of all the sprites
+        for sprite in &mut self.sprites {
+            sprite.transform_mut().correct_shape_and_pos(width, height);
+        }
     }
 
     pub(crate) fn get_window_size(&self) -> winit::dpi::PhysicalSize<u32> {self.system.size}
@@ -228,7 +226,7 @@ impl<C: camera::Camera, S: sprite::Sprite> State<C, S> {
         let mut instance_data = Vec::new();
         let mut change_start: usize = 0;
         for (i, sprite) in self.sprites.iter_mut().enumerate() {
-            if sprite.transform_mut().changed() {
+            if sprite.transform().changed() {
                 sprite.transform_mut().change_handled();
                 instance_data.push(sprite.get_instance());
             } else if change_start != i {
