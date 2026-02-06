@@ -3,9 +3,10 @@ use crate::sprite;
 use crate::instance;
 use crate::vertex;
 use crate::system;
+use crate::texture;
 
+use std::ops::Range;
 use std::sync::Arc;
-use anyhow::anyhow;
 use wgpu::BindGroup;
 use winit::window::Window;
 use winit::keyboard::KeyCode;
@@ -33,7 +34,8 @@ pub(crate) struct State<C: camera::Camera, S: sprite::Sprite> {
     vertex_buffer: wgpu::Buffer,
     index_buffer: wgpu::Buffer,
     num_indices: u32,
-    texture_bind_groups: Vec<(wgpu::BindGroup, (usize, usize))>,
+    textures: Vec<(texture::Texture, wgpu::BindGroup)>,
+    draw_plan: Vec<(usize, (u32, u32))>,
     sprites: Vec<S>,
     instance_buffer: wgpu::Buffer,
     camera: C,
@@ -80,21 +82,27 @@ impl<C: camera::Camera, S: sprite::Sprite> State<C, S> {
         // Record the number of indices in the index buffer
         let num_indices = INDICES.len() as u32;
         
-        // Loop through the sprites and work out what indexes of instances correspond to what bind group 
-        let mut texture_bind_groups: Vec<(BindGroup, (usize, usize))> = vec![];
-        if sprites.len() < 1 {
-            return Err(anyhow!("Must have at least one sprite"));
+        // Loop through sprites and create a vec of every texture used and create a BindGroup from it
+        let mut textures: Vec<(texture::Texture, BindGroup)> = Vec::new();
+        for sprite in sprites.iter() {
+            if textures.iter().find(|&x| x.0 == sprite.texture()) == None {
+                textures.push((sprite.texture(), sprite.texture().create_bind_group(&system)));
+            }
         }
-        texture_bind_groups.push((sprites[0].texture().get_bind_group(&system), (0, 1)));
-        if sprites.len() != 1 {
-            for (i, s) in sprites[1..].iter().enumerate() {
-                if !s.has_same_texture(&sprites[i]) {
-                    texture_bind_groups.last_mut().unwrap().1.1 = i + 1;
-                    texture_bind_groups.push((s.texture().get_bind_group(&system), (i + 1, i + 2)));
+
+        // Work out which sprites need to be drawn with which bind groups and store this as a vec of ranges
+        // Also record the order in which to draw them
+        let mut draw_plan: Vec<(usize, (u32, u32))> = vec![];
+        for (i, sprite) in sprites.iter().enumerate() {
+            if i == 0 || !sprite.has_same_texture(&sprites[i - 1]) {
+                let texture_index = textures.iter_mut().position(|x| x.0 == sprite.texture()).unwrap();
+                draw_plan.push((texture_index, (i as u32, (i+1) as u32)));
+                if i != 0 {
+                    draw_plan.last_mut().unwrap().1.1 = i as u32;
                 }
-            };
-            texture_bind_groups.last_mut().unwrap().1.1 = sprites.len();
+            }
         }
+        draw_plan.last_mut().expect("At least one sprite is required").1.1 = sprites.len() as u32;
 
         // Get data for each instance
         let mut instance_data = Vec::new();
@@ -176,7 +184,8 @@ impl<C: camera::Camera, S: sprite::Sprite> State<C, S> {
             vertex_buffer,
             index_buffer,
             num_indices,
-            texture_bind_groups,
+            textures,
+            draw_plan,
             sprites,
             instance_buffer,
             camera,
@@ -205,7 +214,7 @@ impl<C: camera::Camera, S: sprite::Sprite> State<C, S> {
         // Get time between frames
         let current_instant = Instant::now();
         let delta_time = current_instant.duration_since(self.last_instant).as_secs_f64();
-        self.last_instant = current_instant;
+        self.last_instant = current_instant;     
 
         // Update camera
         self.camera.update(delta_time);
@@ -226,6 +235,33 @@ impl<C: camera::Camera, S: sprite::Sprite> State<C, S> {
         let mut instance_data = Vec::new();
         let mut change_start: usize = 0;
         for (i, sprite) in self.sprites.iter_mut().enumerate() {
+            if sprite.transform().visible_changed() {
+                if sprite.transform().visible() {
+                    todo!();
+                } else {
+                    for batch in self.draw_plan.iter().copied().enumerate() {
+                        if batch.1.1.0 as usize == i && batch.1.1.0 + 1 == batch.1.1.1 {
+                            self.draw_plan.remove(batch.0);
+                            break;
+                        }
+                        if i == batch.1.1.0 as usize {
+                            self.draw_plan[batch.0] = (batch.1.0, (batch.1.1.0 + 1, batch.1.1.1));
+                            break;
+                        }
+                        if i == batch.1.1.1 as usize {
+                            self.draw_plan[batch.0] = (batch.1.0, (batch.1.1.0, batch.1.1.1 - 1));
+                            break;
+                        }
+                        if batch.1.1.0 < i as u32 && batch.1.1.1 > i as u32 {
+                            // let new_batch = (batch.1.0, (i+1, batch.1.1.1));
+                            self.draw_plan[batch.0] = (batch.1.0, ((i+1) as u32, batch.1.1.1));
+                            self.draw_plan.insert(batch.0, (batch.1.0, (batch.1.1.0, i as u32)));
+                            break;
+                        }
+                    }
+                }
+            }
+
             if sprite.transform().changed() {
                 sprite.transform_mut().change_handled();
                 instance_data.push(sprite.get_instance());
@@ -249,7 +285,6 @@ impl<C: camera::Camera, S: sprite::Sprite> State<C, S> {
                 bytemuck::cast_slice(&instance_data[change_start..])
             );
         }
-
     }
 
     pub(crate) fn handle_key(&mut self, key: winit::keyboard::KeyCode, pressed: bool) {
@@ -324,14 +359,17 @@ impl<C: camera::Camera, S: sprite::Sprite> State<C, S> {
             // Create an index buffer using all (..) of self.index_buffer
             render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
 
-            // let mut culled_bind_grou
-            
-            for bind_group in &self.texture_bind_groups {
-                // Set the bind group to the next texture bind group
-                render_pass.set_bind_group(0, &bind_group.0, &[]);
-                // Draw the instances with that texture
-                render_pass.draw_indexed(0..self.num_indices, 0, bind_group.1.0 as u32..bind_group.1.1 as u32);
+            for batch in self.draw_plan.iter() {
+                render_pass.set_bind_group(0, &self.textures[batch.0].1, &[]);
+                render_pass.draw_indexed(0..self.num_indices, 0, batch.1.0..batch.1.1);
             }
+
+            // for bind_group in &self.textures {
+            //     // Set the bind group to the next texture bind group
+            //     render_pass.set_bind_group(0, &bind_group.0, &[]);
+            //     // Draw the instances with that texture
+            //     render_pass.draw_indexed(0..self.num_indices, 0, bind_group.1.0 as u32..bind_group.1.1 as u32);
+            // }
         }
 
         // Add the CommandBuffer created by the CommandEncoder onto the queue

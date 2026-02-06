@@ -1,12 +1,17 @@
+use crate::transform;
+
 // Struct to represent the position and rotation of an instance using a matrix transformation
 #[repr(C)]
 #[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
-pub(crate) struct Instance {
+pub struct Instance {
     model: [[f32; 4]; 4],
 }
 
 impl Instance {
-    pub(crate) fn new(model: [[f32; 4]; 4]) -> Self {
+    pub fn new(transform: &transform::Transform) -> Self {
+        let scale_matrix = cgmath::Matrix4::from_nonuniform_scale(transform.dimensions().x, transform.dimensions().y, 1.0);
+        let model = (cgmath::Matrix4::from_translation(transform.position().extend(0.0)) * scale_matrix).into();
+
         Self { model }
     }
 

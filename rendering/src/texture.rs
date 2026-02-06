@@ -2,7 +2,7 @@ use image::GenericImageView;
 
 use crate::system;
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Hash)]
 pub struct Texture {
     bytes: &'static [u8],
     label: &'static str,
@@ -13,6 +13,8 @@ impl PartialEq for Texture {
         self.bytes == other.bytes && self.label == other.label
     }
 }
+
+impl Eq for Texture {}
 
 impl Texture {
     pub fn new(bytes: &'static [u8], label: &'static str) -> Self {
@@ -26,7 +28,7 @@ impl Texture {
 
     // }
 
-    pub(crate) fn get_bind_group(
+    pub(crate) fn create_bind_group(
         &self,
         system: &system::System
     ) -> wgpu::BindGroup {
