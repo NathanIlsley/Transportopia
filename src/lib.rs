@@ -1,2 +1,4 @@
-pub mod main_camera;
-pub mod tile;
+pub mod structures;
+pub mod world_drawer;
+pub mod tiles;
+pub mod inputs;

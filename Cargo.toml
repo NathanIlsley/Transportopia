@@ -1,14 +1,8 @@
-[workspace]
-resolver = "3"
-members = ["rendering"]
-
 [package]
 name = "transportopia"
 version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-anyhow = "1.0"
-rendering = { path = "rendering" }
-winit = { version = "0.30", features = ["android-native-activity"] }
-cgmath = "0.18"
+macroquad = "0.4.14"
+macroquad-profiler = "0.2"

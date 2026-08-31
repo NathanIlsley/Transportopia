@@ -1,65 +1,57 @@
-use cgmath::InnerSpace;
-use rendering::texture;
-use winit::event_loop::ActiveEventLoop;
-use winit::keyboard::KeyCode;
+use macroquad::prelude::*;
+use macroquad_profiler;
+use transportopia::structures::Structure;
+use transportopia::world_drawer::WorldDrawer;
+use transportopia::inputs::InputHandler;
 
-use transportopia::tile;
-use transportopia::main_camera;
-
-fn key_handler(event_loop: &ActiveEventLoop, key: KeyCode, pressed: bool) {
-    match (key, pressed) {
-        (KeyCode::Escape, true) => event_loop.exit(),
-        _ => {}
+fn window_conf() -> Conf {
+    Conf {
+        window_title: "Transportopia".to_owned(),
+        window_width: 3143,
+        window_height: 1920,
+        high_dpi: true,
+        ..Default::default()
     }
 }
 
-fn main() {
-    let grass_texture = texture::Texture::new(include_bytes!("..\\assets\\grass_0.png"), "grass_texture");
-    let track_texture = texture::Texture::new(include_bytes!("..\\assets\\track_straight_0.png"), "track_texture");
-    let mut sprites = vec![];
-    let track_dimensions = 0.04 * 1.265 * cgmath::Vector2::<f32>::new(240.0, 240.0).normalize();
-    let grass_dimensions = 0.04 * 1.0 * cgmath::Vector2::<f32>::new(240.0, 120.0).normalize();
-    for j in -100..101 {
-        for i in -100..101 {
-            sprites.push(tile::Tile::new(
-                grass_dimensions,
-                cgmath::Vector2::new(grass_dimensions.x / 2.0 * (i + j) as f32, grass_dimensions.y / 2.0 * (i - j) as f32),
-                grass_texture
-            ));
-        }
-    }
-    for j in -100..101 {
-        for i in -100..101 {
-            sprites.push(tile::Tile::new(
-                track_dimensions,
-                cgmath::Vector2::new(grass_dimensions.x / 2.0 * (i + j) as f32, grass_dimensions.y / 2.0 * (i - j) as f32),
-                track_texture
-            ));
-        }
-    }
-    // sprites.push(tile::Tile::new(
-    //     grass_dimensions,
-    //     cgmath::Vector2::new(0.0, 0.0),
-    //     grass_texture
-    // ));
-    // sprites.push(tile::Tile::new(
-    //     track_dimensions,
-    //     cgmath::Vector2::new(0.0, 0.0),
-    //     track_texture
-    // ));
-    // sprites.push(tile::Tile::new(
-    //     grass_dimensions,
-    //     cgmath::Vector2::new(grass_dimensions.x / 2.0, -grass_dimensions.y / 2.0),
-    //     grass_texture
-    // ));
-    // sprites.push(tile::Tile::new(
-    //     track_dimensions,
-    //     cgmath::Vector2::new(grass_dimensions.x / 2.0, -grass_dimensions.y / 2.0),
-    //     track_texture
-    // ));
-    
-    let camera = main_camera::MainCamera::new(cgmath::Vector2::new(0.0, 0.0));
+#[macroquad::main(window_conf)]
+async fn main() {
+    // let grass: Texture2D = load_texture("./assets/grass_0.png").await.unwrap();
+    // grass.set_filter(FilterMode::Nearest);
 
-    rendering::run(camera, sprites, key_handler)
-        .expect("Application encountered an error and had to close.");
+    // // x and y dimensions of the base game tile measured from the centre of the tile to each corner
+    // let tile_dim = vec2(grass.width() / 2.0, grass.height() / 2.0);
+
+    let s_track_0 = Structure::new(vec2(0.0, -60.0), vec2(0.0, 0.0), "./assets/track_straight_0.png").await;
+    // let s_track_90 = Structure::new(vec2(0.0, -60.0), vec2(0.0, 0.0), "./assets/track_straight_90.png").await;
+    // let c_track_0 = Structure::new(vec2(0.0, -30.0), vec2(0.0, 0.0), "./assets/track_curved_0.png").await;
+    // let c_track_45 = Structure::new(vec2(-1320.0, -30.0), vec2(0.0, 0.0), "./assets/track_curved_45.png").await;
+    // let c_track_90 = Structure::new(vec2(1.0, -719.0), vec2(0.0, 0.0), "./assets/track_curved_90.png").await;
+    // let c_track_135 = Structure::new(vec2(2.0, -12.0), vec2(0.0, 0.0), "./assets/track_curved_135.png").await;
+    // let c_track_180 = Structure::new(vec2(-1320.0, -330.0), vec2(0.0, 0.0), "./assets/track_curved_180.png").await;
+    // let c_track_225 = Structure::new(vec2(0.0, -330.0), vec2(0.0, 0.0), "./assets/track_curved_225.png").await;
+    // let c_track_270 = Structure::new(vec2(-479.0, -12.0), vec2(0.0, 0.0), "./assets/track_curved_270.png").await;
+    // let c_track_315 = Structure::new(vec2(-478.0, -719.0), vec2(0.0, 0.0), "./assets/track_curved_315.png").await;
+
+    let tile_manager = transportopia::tiles::TileManager::new();
+
+    let mut world_drawer = WorldDrawer::new("./assets/grass_0.png", vec![s_track_0]).await;
+
+    build_textures_atlas();
+
+    let input_handler = InputHandler::new();
+    
+    loop {
+        clear_background(BLACK);
+
+        world_drawer.draw(&tile_manager);
+
+        macroquad_profiler::profiler(Default::default());
+
+        input_handler.take_input(&mut world_drawer);
+
+        // s_track_0.draw(vec2(0.0, 0.0), &scale, &tile_dim, &vec2(0.0, 0.0));
+
+        next_frame().await;
+    }
 }
