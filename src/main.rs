@@ -51,6 +51,7 @@ async fn main() {
         clear_background(BLACK);
 
         world_drawer.draw();
+        world_drawer.draw();
 
         macroquad_profiler::profiler(Default::default());
 
