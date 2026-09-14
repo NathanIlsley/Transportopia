@@ -1,7 +1,8 @@
 use macroquad::prelude::*;
 use macroquad_profiler;
 use transportopia::structures::Structure;
-use transportopia::world_drawer::WorldDrawer;
+use transportopia::rendering::Rendering;
+use transportopia::tiles::TerrainChunkConfig;
 use transportopia::inputs::InputHandler;
 
 fn window_conf() -> Conf {
@@ -22,7 +23,7 @@ async fn main() {
     // // x and y dimensions of the base game tile measured from the centre of the tile to each corner
     // let tile_dim = vec2(grass.width() / 2.0, grass.height() / 2.0);
 
-    let s_track_0 = Structure::new(vec2(0.0, -60.0), vec2(0.0, 0.0), "./assets/track_straight_0.png").await;
+    let _s_track_0 = Structure::new(vec2(0.0, -60.0), vec2(0.0, 0.0), "./assets/track_straight_0.png").await;
     // let s_track_90 = Structure::new(vec2(0.0, -60.0), vec2(0.0, 0.0), "./assets/track_straight_90.png").await;
     // let c_track_0 = Structure::new(vec2(0.0, -30.0), vec2(0.0, 0.0), "./assets/track_curved_0.png").await;
     // let c_track_45 = Structure::new(vec2(-1320.0, -30.0), vec2(0.0, 0.0), "./assets/track_curved_45.png").await;
@@ -33,9 +34,14 @@ async fn main() {
     // let c_track_270 = Structure::new(vec2(-479.0, -12.0), vec2(0.0, 0.0), "./assets/track_curved_270.png").await;
     // let c_track_315 = Structure::new(vec2(-478.0, -719.0), vec2(0.0, 0.0), "./assets/track_curved_315.png").await;
 
-    let tile_manager = transportopia::tiles::TileManager::new();
+    // let tile_manager = transportopia::tiles::TileManager::new();
 
-    let mut world_drawer = WorldDrawer::new("./assets/grass_0.png", vec![s_track_0]).await;
+    let terrain_config = TerrainChunkConfig {
+        chunk_tile_size: 16,
+        chunks_from_centre: 4,
+    };
+
+    let mut world_drawer = Rendering::with_config(terrain_config).await;
 
     build_textures_atlas();
 
@@ -44,7 +50,7 @@ async fn main() {
     loop {
         clear_background(BLACK);
 
-        world_drawer.draw(&tile_manager);
+        world_drawer.draw();
 
         macroquad_profiler::profiler(Default::default());
 

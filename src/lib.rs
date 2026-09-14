@@ -1,4 +1,4 @@
 pub mod structures;
-pub mod world_drawer;
+pub mod rendering;
 pub mod tiles;
 pub mod inputs;

@@ -1,76 +1,152 @@
-// use crate::structures::Structure;
-
-const WORLD_SIZE: usize = 1024;
+use macroquad::prelude::*;
 
 #[derive(Clone, Copy)]
 pub enum Tile {
-    Grass(),//&Structure
-    // Sand(),
+    Grass,
 }
 
-// // #[derive(Copy)]
-// struct Tile {
-//     ground_type: GroundType,
-//     structures: Vec<Structure>,
-// }
+#[derive(Clone, Copy)]
+pub struct TerrainChunkConfig {
+    pub chunk_tile_size: u32,
+    pub chunks_from_centre: u32,
+}
 
-// impl Tile {
-//     fn add_structure(&mut self, structure: Structure) {
-//         match self {
-//             Tile::Grass(tiles) => {
-//                 tiles.push(structure);
-//             }
-//         }
-//     }
+impl Default for TerrainChunkConfig {
+    fn default() -> Self {
+        Self {
+            chunk_tile_size: 8,
+            chunks_from_centre: 3,
+        }
+    }
+}
 
-//     fn get_structures(&self) -> &Vec<Structure> {
-//         match self {
-//             Tile::Grass(tiles) => tiles,
-//         }
-//     }
-// }
+struct Chunk {
+    chunk_pos: IVec2,
+    built: bool,
+    render_target: RenderTarget,
+    rt_camera: Camera2D,
+    chunk_tile_size: u32,
+    tile_dim: Vec2,
+}
+
+impl Chunk {
+    fn new(chunk_pos: IVec2, chunk_tile_size: u32, tile_dim: Vec2) -> Self {
+        let texture_width = (chunk_tile_size as f32 * tile_dim.x * 2.0).ceil().max(1.0) as u32;
+        let texture_height = (chunk_tile_size as f32 * tile_dim.y * 2.0).ceil().max(1.0) as u32;
+
+        let render_target = render_target(texture_width, texture_height);
+        render_target.texture.set_filter(FilterMode::Nearest);
+        let cam_render_target = render_target.clone();
+
+        Self {
+            chunk_pos,
+            built: false,
+            render_target,
+            rt_camera: Camera2D {
+                render_target: Some(cam_render_target),
+                ..Camera2D::from_display_rect(Rect::new(
+                    0.0,
+                    0.0,
+                    texture_width as f32,
+                    texture_height as f32,
+                ))
+            },
+            chunk_tile_size,
+            tile_dim,
+        }
+    }
+
+    fn is_built(&self) -> bool {
+        self.built
+    }
+
+    fn build(&mut self, grass: &Texture2D) {
+        set_camera(&self.rt_camera);
+        clear_background(Color::new(0.0, 0.0, 0.0, 0.0));
+
+        let tile_size = vec2(grass.width(), grass.height());
+        let y_offset = (self.chunk_tile_size as f32 - 1.0) * self.tile_dim.y;
+
+        for tile_x in 0..self.chunk_tile_size as i32 {
+            for tile_y in 0..self.chunk_tile_size as i32 {
+                draw_texture_ex(
+                    grass,
+                    (tile_x + tile_y) as f32 * self.tile_dim.x,
+                    (tile_y - tile_x) as f32 * self.tile_dim.y + y_offset,
+                    WHITE,
+                    DrawTextureParams {
+                        dest_size: Some(tile_size),
+                        ..Default::default()
+                    },
+                );
+            }
+        }
+
+        set_default_camera();
+        self.built = true;
+    }
+
+    fn draw_to_screen(&self, scale: f32, scroll_vector: Vec2) {
+        let chunk_width_in_tiles = self.chunk_tile_size as f32;
+        let world_x = (self.chunk_pos.x as f32 * chunk_width_in_tiles
+            + self.chunk_pos.y as f32 * chunk_width_in_tiles)
+            * self.tile_dim.x;
+        let world_y = (self.chunk_pos.y as f32 * chunk_width_in_tiles
+            - self.chunk_pos.x as f32 * chunk_width_in_tiles)
+            * self.tile_dim.y
+            - (self.chunk_tile_size as f32 - 1.0) * self.tile_dim.y;
+
+        draw_texture_ex(
+            &self.render_target.texture,
+            screen_width() / 2.0 + world_x * scale + scroll_vector.x,
+            screen_height() / 2.0 + world_y * scale + scroll_vector.y,
+            WHITE,
+            DrawTextureParams {
+                dest_size: Some(vec2(
+                    self.render_target.texture.width() * scale,
+                    self.render_target.texture.height() * scale,
+                )),
+                ..Default::default()
+            },
+        );
+    }
+}
 
 pub struct TileManager {
-    tiles: [[Tile; WORLD_SIZE * 2 + 1]; WORLD_SIZE * 2 + 1],
+    grass: Texture2D,
+    chunks: Vec<Vec<Chunk>>,
 }
 
 impl TileManager {
-    pub fn new() -> Self {
-        let tiles = [[Tile::Grass(); WORLD_SIZE * 2 + 1]; WORLD_SIZE * 2 + 1];
+    pub fn new(grass: Texture2D, config: TerrainChunkConfig) -> Self {
+        let tile_dim = vec2(grass.width() / 2.0, grass.height() / 2.0);
+        let mut chunks = Vec::new();
+        let chunk_radius = config.chunks_from_centre as i32;
 
-        Self { tiles }
-    }
-
-    pub fn get_tile(&self, x: isize, y: isize) -> Option<&Tile> {
-        if x.abs() < WORLD_SIZE as isize && y.abs() < WORLD_SIZE as isize {
-            Some(&self.tiles[(x + WORLD_SIZE as isize) as usize][(y + WORLD_SIZE as isize) as usize])
-        } else {
-            None
-        }
-    }
-
-    pub fn is_grass(&self, x: isize, y: isize, tiles_from_centre: isize) -> Option<bool> {
-        if x + tiles_from_centre < WORLD_SIZE as isize && y + tiles_from_centre < WORLD_SIZE as isize && x - tiles_from_centre >= -(WORLD_SIZE as isize) && y - tiles_from_centre >= -(WORLD_SIZE as isize) {
-            let mut result = true;
-            
-            for i in x - tiles_from_centre..x + tiles_from_centre {
-                for j in y - tiles_from_centre..y + tiles_from_centre {
-                    if let Tile::Grass() = self.tiles[(i + WORLD_SIZE as isize) as usize][(j + WORLD_SIZE as isize) as usize] {} else {
-                        result = false;
-                        break;
-                    }
-                }
+        for chunk_x in -chunk_radius..=chunk_radius {
+            let mut chunk_column = Vec::new();
+            for chunk_y in -chunk_radius..=chunk_radius {
+                chunk_column.push(Chunk::new(
+                    ivec2(chunk_x, chunk_y),
+                    config.chunk_tile_size,
+                    tile_dim,
+                ));
             }
-
-            Some(result)
-        } else {
-            None
+            chunks.push(chunk_column);
         }
+
+        Self { grass, chunks }
     }
 
-    pub fn set_tile_ground_type(&mut self, x: isize, y: isize, tile: Tile) {
-        if x.abs() < WORLD_SIZE as isize && y.abs() < WORLD_SIZE as isize {
-            self.tiles[(x + WORLD_SIZE as isize) as usize][(y + WORLD_SIZE as isize) as usize] = tile;
+    pub fn draw(&mut self, scale: f32, scroll_vector: Vec2) {
+        for column in &mut self.chunks {
+            for chunk in column {
+                if !chunk.is_built() {
+                    chunk.build(&self.grass);
+                }
+
+                chunk.draw_to_screen(scale, scroll_vector);
+            }
         }
     }
 }
