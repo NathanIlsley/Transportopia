@@ -29,14 +29,7 @@ impl Rendering {
     }
 
     pub fn change_zoom(&mut self, delta: f32) {
-        let old_scale = self.scale;
-        let new_scale = (self.scale + self.scale * delta).clamp(0.25, 8.0);
-        
-        // Adjust scroll vector to keep the screen center at the same world position
-        let scale_ratio = new_scale / old_scale;
-        self.scroll_vector *= scale_ratio;
-        
-        self.scale = new_scale;
+        self.scale = (self.scale + self.scale * delta).clamp(0.01, 8.0);
     }
 
     pub fn draw(&mut self) {

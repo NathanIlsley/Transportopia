@@ -37,7 +37,7 @@ async fn main() {
     // let tile_manager = transportopia::tiles::TileManager::new();
 
     let terrain_config = TerrainChunkConfig {
-        chunk_tile_size: 4,
+        chunk_tile_size: 64,
         chunks_from_centre: 1,
         chunk_texture_scale: 0.25,
     };
@@ -52,13 +52,10 @@ async fn main() {
         clear_background(BLACK);
 
         world_drawer.draw();
-        world_drawer.draw();
 
         macroquad_profiler::profiler(Default::default());
 
         input_handler.take_input(&mut world_drawer);
-
-        // s_track_0.draw(vec2(0.0, 0.0), &scale, &tile_dim, &vec2(0.0, 0.0));
 
         next_frame().await;
     }

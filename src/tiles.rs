@@ -104,18 +104,15 @@ impl Chunk {
 
     fn draw_to_screen(&self, scale: f32, scroll_vector: Vec2) {
         let chunk_width_in_tiles = self.chunk_tile_size as f32;
-        let world_x = (self.chunk_pos.x as f32 * chunk_width_in_tiles
-            + self.chunk_pos.y as f32 * chunk_width_in_tiles)
-            * self.tile_dim.x;
-        let world_y = (self.chunk_pos.y as f32 * chunk_width_in_tiles
-            - self.chunk_pos.x as f32 * chunk_width_in_tiles)
-            * self.tile_dim.y
-            - (self.chunk_tile_size as f32 - 1.0) * self.tile_dim.y;
+        let world_x = (self.chunk_pos.x as f32 + self.chunk_pos.y as f32 - 1.0)
+            * chunk_width_in_tiles * self.tile_dim.x / 2.0;
+        let world_y = (self.chunk_pos.y as f32 - self.chunk_pos.x as f32 - 1.0)
+            * chunk_width_in_tiles * self.tile_dim.y / 2.0;
 
         draw_texture_ex(
             &self.render_target.texture,
-            screen_width() / 2.0 + world_x * scale + scroll_vector.x,
-            screen_height() / 2.0 + world_y * scale + scroll_vector.y,
+            screen_width() / 2.0 + (world_x + scroll_vector.x) * scale,
+            screen_height() / 2.0 + (world_y + scroll_vector.y) * scale,
             WHITE,
             DrawTextureParams {
                 dest_size: Some(vec2(
@@ -135,7 +132,7 @@ pub struct TileManager {
 
 impl TileManager {
     pub fn new(grass: Texture2D, config: TerrainChunkConfig) -> Self {
-        let tile_dim = vec2(grass.width() / 2.0, grass.height() / 2.0);
+        let tile_dim = vec2(grass.width(), grass.height());
         let mut chunks = Vec::new();
         let chunk_radius = config.chunks_from_centre as i32;
 
