@@ -23,7 +23,7 @@ async fn main() {
     // // x and y dimensions of the base game tile measured from the centre of the tile to each corner
     // let tile_dim = vec2(grass.width() / 2.0, grass.height() / 2.0);
 
-    let _s_track_0 = Structure::new(vec2(0.0, -60.0), vec2(0.0, 0.0), "./assets/track_straight_0.png").await;
+    // let _s_track_0 = Structure::new(vec2(0.0, -60.0), vec2(0.0, 0.0), "./assets/track_straight_0.png").await;
     // let s_track_90 = Structure::new(vec2(0.0, -60.0), vec2(0.0, 0.0), "./assets/track_straight_90.png").await;
     // let c_track_0 = Structure::new(vec2(0.0, -30.0), vec2(0.0, 0.0), "./assets/track_curved_0.png").await;
     // let c_track_45 = Structure::new(vec2(-1320.0, -30.0), vec2(0.0, 0.0), "./assets/track_curved_45.png").await;
@@ -37,8 +37,8 @@ async fn main() {
     // let tile_manager = transportopia::tiles::TileManager::new();
 
     let terrain_config = TerrainChunkConfig {
-        chunk_tile_size: 16,
-        chunks_from_centre: 4,
+        chunk_tile_size: 4,
+        chunks_from_centre: 1,
     };
 
     let mut world_drawer = Rendering::with_config(terrain_config).await;

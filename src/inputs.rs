@@ -1,6 +1,5 @@
 use macroquad::prelude::*;
 use crate::rendering::Rendering;
-use crate::rendering::Rendering;
 
 pub struct InputHandler {
     scroll_speed: f32,
