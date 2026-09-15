@@ -39,6 +39,7 @@ async fn main() {
     let terrain_config = TerrainChunkConfig {
         chunk_tile_size: 64,
         chunks_from_centre: 1,
+        chunk_texture_scale: 0.25,
     };
 
     let mut world_drawer = Rendering::with_config(terrain_config).await;

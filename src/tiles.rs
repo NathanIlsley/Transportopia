@@ -9,6 +9,7 @@ pub enum Tile {
 pub struct TerrainChunkConfig {
     pub chunk_tile_size: u32,
     pub chunks_from_centre: u32,
+    pub chunk_texture_scale: f32,
 }
 
 impl Default for TerrainChunkConfig {
@@ -16,6 +17,7 @@ impl Default for TerrainChunkConfig {
         Self {
             chunk_tile_size: 8,
             chunks_from_centre: 3,
+            chunk_texture_scale: 1.0,
         }
     }
 }
@@ -27,12 +29,24 @@ struct Chunk {
     rt_camera: Camera2D,
     chunk_tile_size: u32,
     tile_dim: Vec2,
+    world_texture_size: Vec2,
+    texture_scale: f32,
 }
 
 impl Chunk {
-    fn new(chunk_pos: IVec2, chunk_tile_size: u32, tile_dim: Vec2) -> Self {
-        let texture_width = (chunk_tile_size as f32 * tile_dim.x).ceil().max(1.0) as u32;
-        let texture_height = (chunk_tile_size as f32 * tile_dim.y).ceil().max(1.0) as u32;
+    fn new(
+        chunk_pos: IVec2,
+        chunk_tile_size: u32,
+        tile_dim: Vec2,
+        texture_scale: f32,
+    ) -> Self {
+        let world_texture_size = vec2(
+            (chunk_tile_size as f32 * tile_dim.x * 2.0).ceil().max(1.0),
+            (chunk_tile_size as f32 * tile_dim.y * 2.0).ceil().max(1.0),
+        );
+        let texture_scale = texture_scale.max(0.125);
+        let texture_width = (world_texture_size.x * texture_scale).ceil().max(1.0) as u32;
+        let texture_height = (world_texture_size.y * texture_scale).ceil().max(1.0) as u32;
 
         let render_target = render_target(texture_width, texture_height);
         render_target.texture.set_filter(FilterMode::Nearest);
@@ -53,6 +67,8 @@ impl Chunk {
             },
             chunk_tile_size,
             tile_dim,
+            world_texture_size,
+            texture_scale,
         }
     }
 
@@ -64,15 +80,15 @@ impl Chunk {
         set_camera(&self.rt_camera);
         clear_background(Color::new(0.0, 0.0, 0.0, 0.0));
 
-        let tile_size = vec2(grass.width(), grass.height());
-        let y_offset = (self.chunk_tile_size as f32 - 1.0) * self.tile_dim.y / 2.0;
+        let tile_size = vec2(grass.width(), grass.height()) * self.texture_scale;
+        let y_offset = (self.chunk_tile_size as f32 - 1.0) * self.tile_dim.y * self.texture_scale;
 
         for tile_x in 0..self.chunk_tile_size as i32 {
             for tile_y in 0..self.chunk_tile_size as i32 {
                 draw_texture_ex(
                     grass,
-                    (tile_x + tile_y) as f32 * self.tile_dim.x / 2.0,
-                    (tile_y - tile_x) as f32 * self.tile_dim.y / 2.0 + y_offset,
+                    (tile_x + tile_y) as f32 * self.tile_dim.x * self.texture_scale,
+                    (tile_y - tile_x) as f32 * self.tile_dim.y * self.texture_scale + y_offset,
                     WHITE,
                     DrawTextureParams {
                         dest_size: Some(tile_size),
@@ -100,8 +116,8 @@ impl Chunk {
             WHITE,
             DrawTextureParams {
                 dest_size: Some(vec2(
-                    self.render_target.texture.width() * scale,
-                    self.render_target.texture.height() * scale,
+                    self.world_texture_size.x * scale,
+                    self.world_texture_size.y * scale,
                 )),
                 ..Default::default()
             },
@@ -127,6 +143,7 @@ impl TileManager {
                     ivec2(chunk_x, chunk_y),
                     config.chunk_tile_size,
                     tile_dim,
+                    config.chunk_texture_scale,
                 ));
             }
             chunks.push(chunk_column);
